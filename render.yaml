@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: g2-vision-ai
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm install && npm run build -w backend
+    startCommand: npm run start -w backend
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: RESULT_TTL_SECONDS
+        value: "3600"
+      - key: MAX_UPLOAD_MB
+        value: "8"
+      - key: IMAGE_MAX_EDGE
+        value: "1600"
+      - key: IMAGE_JPEG_QUALITY
+        value: "80"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: G2_DEVICE_SECRET
+        sync: false
