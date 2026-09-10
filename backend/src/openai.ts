@@ -7,15 +7,52 @@ export type VisionAnalyzeInput = {
   question?: string;
 };
 
+export type OpenAIKeyCheck = {
+  ok: boolean;
+  model: string;
+  openaiKeySet: boolean;
+  code?: string;
+  error?: string;
+};
+
 export interface VisionClient {
   analyze(input: VisionAnalyzeInput): Promise<string>;
+  checkApiKey(): Promise<OpenAIKeyCheck>;
 }
 
 export class OpenAIVisionClient implements VisionClient {
   constructor(
     private readonly client: OpenAI,
     private readonly model: string,
+    private readonly apiKey: string,
   ) {}
+
+  async checkApiKey(): Promise<OpenAIKeyCheck> {
+    if (!this.apiKey) {
+      return {
+        ok: false,
+        model: this.model,
+        openaiKeySet: false,
+        code: 'openai_auth',
+        error: 'OPENAI_API_KEY is not set',
+      };
+    }
+    try {
+      await this.client.models.retrieve(this.model);
+      return { ok: true, model: this.model, openaiKeySet: true };
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      const message = err instanceof Error ? err.message : String(err);
+      const auth = status === 401 || /invalid api key|incorrect api key|unauthorized/i.test(message);
+      return {
+        ok: false,
+        model: this.model,
+        openaiKeySet: true,
+        code: auth ? 'openai_auth' : 'openai_error',
+        error: auth ? 'OpenAI key rejected' : message.slice(0, 180),
+      };
+    }
+  }
 
   async analyze(input: VisionAnalyzeInput): Promise<string> {
     try {
@@ -57,5 +94,6 @@ export function createOpenAIClient(apiKey: string, baseUrl: string, model: strin
       timeout: 45_000,
     }),
     model,
+    apiKey,
   );
 }

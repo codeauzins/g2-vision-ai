@@ -65,7 +65,8 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| GET | `/health` | no | Render health check |
+| GET | `/health` | no | Render health check (does not call OpenAI) |
+| GET | `/api/openai` | Bearer | Live OpenAI API key test (cached 30s) |
 | POST | `/api/analyze` | Bearer | Upload image, start job (202) |
 | GET | `/api/result/:jobId` | Bearer | Job status / answer |
 | GET | `/api/latest` | Bearer | Newest job (or `{ result: null }`) |
@@ -84,15 +85,17 @@ Images are resized so the longest edge is 1600px and re-encoded as JPEG quality 
 
 Package: `even-app`, SDK `@evenrealities/even_hub_sdk` (0.0.15).
 
-UI states: **Ready**, **Analyzing…**, **result pages**, **short glasses errors**.
+UI states: **Checking OpenAI key…**, **Ready** (only after the key test succeeds), **Analyzing…**, **result pages**, **short glasses errors**.
 
-Gestures (official event types):
+Gestures (official `OsEventTypeList`; R1 ring and G2 temples share the same event types):
 
 - Temple / ring swipe down → next page
 - Swipe up → previous page
-- Tap → next page (on a result) or retry
-- Double-tap → system exit confirmation (`shutDownPageContainer(1)`)
-- Tap then long-press → contextual menu: Refresh, Previous Page, Next Page, Clear, Short Answer
+- Tap → next page (on a result) or retry (after the double-tap window)
+- **Quick Blank:** R1 / temple **double tap** → blank the HUD; double tap again → restore. A new Ask AI result wakes the HUD on page 1. Polling does not stop.
+- Tap then long-press → contextual menu: Refresh, Previous Page, Next Page, Clear, Short Answer, **Exit** (`shutDownPageContainer(1)`)
+
+There is **no** SDK display-off API. Quick Blank is an empty text container (black pixels are off). See [docs/g2-pagination.md](docs/g2-pagination.md#quick-blank).
 
 Build-time env (`even-app/.env.local`): `VITE_API_BASE_URL`, `VITE_DEVICE_SECRET`, `VITE_MOCK_API`. These are **not** Render env vars. See [docs/glasses-config.md](docs/glasses-config.md).
 
@@ -160,6 +163,7 @@ Full procedure: [docs/even-private-install.md](docs/even-private-install.md).
 | --- | --- | --- |
 | Shortcut fails immediately | HEIC body | Convert Image to JPEG in the Shortcut |
 | 401 from `/api/analyze` | Secret mismatch | Same `G2_DEVICE_SECRET` on Render, Shortcut, app |
+| Glasses stay on Checking OpenAI | Key missing or invalid on Render | Set `OPENAI_API_KEY`; watch Render for `openai key failed` |
 | Glasses stay on Ready | URL not in `app.json` whitelist, CORS, or app not rebuilt | Sync whitelist, redeploy, pack |
 | Server waking up… | Render free spin-down | Wait; polling continues |
 | Same answer never updates | Deduped `jobId` | Take a new photo, or menu → Refresh |

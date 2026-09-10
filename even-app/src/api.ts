@@ -1,4 +1,4 @@
-import type { LatestResponse } from './types.js';
+import type { LatestResponse, OpenAIStatusResponse } from './types.js';
 
 export class ApiError extends Error {
   constructor(
@@ -9,11 +9,12 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchLatest(
+async function authedGet<T>(
   apiBaseUrl: string,
   deviceSecret: string,
+  path: string,
   signal?: AbortSignal,
-): Promise<LatestResponse> {
+): Promise<T> {
   if (!apiBaseUrl) {
     throw new ApiError('Backend URL is not configured', 0);
   }
@@ -27,7 +28,7 @@ export async function fetchLatest(
   signal?.addEventListener('abort', onAbort);
 
   try {
-    const res = await fetch(`${apiBaseUrl}/api/latest`, {
+    const res = await fetch(`${apiBaseUrl}${path}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${deviceSecret}`,
@@ -38,7 +39,7 @@ export async function fetchLatest(
     if (!res.ok) {
       throw new ApiError(`HTTP ${res.status}`, res.status);
     }
-    const body = (await res.json()) as LatestResponse;
+    const body = (await res.json()) as T;
     if (typeof body !== 'object' || body == null) {
       throw new ApiError('Malformed result');
     }
@@ -53,4 +54,20 @@ export async function fetchLatest(
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
+}
+
+export async function fetchLatest(
+  apiBaseUrl: string,
+  deviceSecret: string,
+  signal?: AbortSignal,
+): Promise<LatestResponse> {
+  return authedGet<LatestResponse>(apiBaseUrl, deviceSecret, '/api/latest', signal);
+}
+
+export async function fetchOpenAIStatus(
+  apiBaseUrl: string,
+  deviceSecret: string,
+  signal?: AbortSignal,
+): Promise<OpenAIStatusResponse> {
+  return authedGet<OpenAIStatusResponse>(apiBaseUrl, deviceSecret, '/api/openai', signal);
 }

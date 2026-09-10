@@ -7,7 +7,7 @@ import { requestToken, newJobId, secretsEqual } from './auth.js';
 import { HttpError, httpError } from './errors.js';
 import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl } from './image.js';
 import { parseMode } from './modes.js';
-import type { VisionClient } from './openai.js';
+import type { OpenAIKeyCheck, VisionClient } from './openai.js';
 import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
 import { APP_VERSION } from './version.js';
 import { publicError } from './log.js';
@@ -30,6 +30,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const store = deps.store ?? new MemoryResultStore();
   const now = deps.now ?? Date.now;
   let seq = 0;
+  const KEY_CHECK_TTL_MS = 30_000;
+  let keyCheckCache: { at: number; result: OpenAIKeyCheck } | undefined;
 
   const app = Fastify({
     disableRequestLogging: true,
@@ -169,6 +171,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     time: new Date(now()).toISOString(),
     shortcutAuth: ['bearer', 'query_token', 'form_token'],
   }));
+
+  app.get('/api/openai', async (request) => {
+    requireAuth(request);
+    if (keyCheckCache && now() - keyCheckCache.at < KEY_CHECK_TTL_MS) {
+      return { cached: true, ...keyCheckCache.result };
+    }
+    const started = now();
+    const result = await vision.checkApiKey();
+    keyCheckCache = { at: now(), result };
+    request.log.info(
+      {
+        openaiOk: result.ok,
+        openaiKeySet: result.openaiKeySet,
+        openaiModel: result.model,
+        code: result.code,
+        error: result.error,
+        ms: now() - started,
+      },
+      result.ok ? 'openai key ok' : 'openai key failed',
+    );
+    return { cached: false, ...result };
+  });
 
   app.post('/api/analyze', async (request, reply) => {
     const started = now();

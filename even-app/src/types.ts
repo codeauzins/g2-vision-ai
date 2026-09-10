@@ -20,7 +20,16 @@ export type LatestResponse = {
   result: JobView | null;
 };
 
-export type ScreenKind = 'waiting' | 'processing' | 'result' | 'error';
+export type OpenAIStatusResponse = {
+  ok: boolean;
+  openaiKeySet?: boolean;
+  model?: string;
+  code?: string;
+  error?: string;
+  cached?: boolean;
+};
+
+export type ScreenKind = 'checking' | 'waiting' | 'processing' | 'result' | 'error';
 
 export type GlassesScreen = {
   kind: ScreenKind;

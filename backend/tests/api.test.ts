@@ -56,6 +56,11 @@ async function waitForJob(app: Awaited<ReturnType<typeof buildApp>>, jobId: stri
 describe('g2-vision-ai backend', () => {
   const vision: VisionClient = {
     analyze: vi.fn(async () => 'A green square. This is a demo answer for glasses.'),
+    checkApiKey: vi.fn(async () => ({
+      ok: true,
+      model: 'gpt-4o-mini',
+      openaiKeySet: true,
+    })),
   };
 
   beforeEach(() => {
@@ -71,11 +76,55 @@ describe('g2-vision-ai backend', () => {
       store,
       vision: {
         analyze: overrides?.analyze ?? vision.analyze,
+        checkApiKey: overrides?.checkApiKey ?? vision.checkApiKey,
       },
       now: overrides?.now,
     });
     return { app, store };
   }
+
+  it('tests the OpenAI key before the glasses show Ready', async () => {
+    const { app } = await makeApp();
+    const denied = await app.inject({ method: 'GET', url: '/api/openai' });
+    expect(denied.statusCode).toBe(401);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/openai',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    expect(res.json().openaiKeySet).toBe(true);
+    expect(vision.checkApiKey).toHaveBeenCalledOnce();
+    const cached = await app.inject({
+      method: 'GET',
+      url: '/api/openai',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(cached.json().cached).toBe(true);
+    expect(vision.checkApiKey).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('reports a rejected OpenAI key without showing Ready', async () => {
+    const { app } = await makeApp({
+      checkApiKey: async () => ({
+        ok: false,
+        model: 'gpt-4o-mini',
+        openaiKeySet: true,
+        code: 'openai_auth',
+        error: 'OpenAI key rejected',
+      }),
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/openai',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(res.json().ok).toBe(false);
+    expect(res.json().code).toBe('openai_auth');
+    await app.close();
+  });
 
   it('health is public', async () => {
     const { app } = await makeApp();

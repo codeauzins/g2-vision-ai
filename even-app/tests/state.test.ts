@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyFetchError,
   decidePoll,
+  glassesErrorFromOpenAICheck,
+  checkingScreen,
   nextIndex,
   prevIndex,
   processingScreen,
@@ -21,6 +23,15 @@ describe('result state', () => {
     const screen = waitingScreen();
     expect(screen.kind).toBe('waiting');
     expect(screen.body).toContain('Action Button');
+    expect(screen.body).toContain('Ready');
+  });
+
+  it('does not show Ready until the OpenAI key check passes', () => {
+    const checking = checkingScreen();
+    expect(checking.body).toContain('Checking OpenAI');
+    expect(checking.body).not.toContain('Ready');
+    expect(glassesErrorFromOpenAICheck({ ok: false, code: 'openai_auth' })).toContain('OPENAI_API_KEY');
+    expect(glassesErrorFromOpenAICheck({ ok: true })).toBe('');
   });
 
   it('shows processing copy', () => {

@@ -25,6 +25,8 @@ VITE_MOCK_API=false
 
 3. Rebuild/pack the glasses app (`npm run pack`) so that secret is inside **Ask AI**. Changing Render env does not update an already-installed glasses app.
 
+Ask AI starts on **Checking OpenAI key…** and only shows **Ready** after `GET /api/openai` succeeds (Render must have a valid `OPENAI_API_KEY`). `/health` does not perform that live key test.
+
 You never paste `VITE_*` into Render.
 
 ## Disk `/var/data2`

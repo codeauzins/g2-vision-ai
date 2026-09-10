@@ -53,10 +53,30 @@ Official `OsEventTypeList` on `event.textEvent` (container `isEventCapture: 1`):
 
 - `SCROLL_BOTTOM_EVENT` — next page
 - `SCROLL_TOP_EVENT` — previous page
-- `CLICK_EVENT` (or `undefined`, SDK quirk) — next page
-- `DOUBLE_CLICK_EVENT` — exit dialog
+- `CLICK_EVENT` (or `undefined`, SDK quirk) — next page, after the Quick Blank window
+- `DOUBLE_CLICK_EVENT` — **Quick Blank** (native double press from G2 or R1)
 
-Menu item IDs (SDK `menuObject` / `menuItemClickEvent`, 0.0.14+): Refresh, Previous Page, Next Page, Clear, Short Answer.
+### Quick Blank
+
+R1 double tap → blank display  
+R1 double tap again → restore  
+New Ask AI result → automatically display  
+
+The Even Hub SDK (`0.0.15`) exposes `DOUBLE_CLICK_EVENT` for both the G2 temples and the R1 ring ([Device APIs](https://hub.evenrealities.com/docs/build/device-apis)). It does **not** expose a programmatic Display Off / hide-screen call ([Display & UI](https://hub.evenrealities.com/docs/build/display), [Page lifecycle](https://hub.evenrealities.com/docs/build/page-lifecycle) — `shutDownPageContainer` exits the plugin, which Quick Blank must not do).
+
+App-level blank mode:
+
+- `isDisplayBlank` stays in the plugin; `GET /api/latest` polling continues
+- HUD content is a single space (no title, no page indicator). On G2, black pixels are off
+- Result text, page index, and compact-mode flag are kept
+- Two `CLICK_EVENT`s inside `DOUBLE_TAP_WINDOW_MS` (350ms, `even-app/src/doubleTap.ts`) also toggle, so a missing native double-press cannot page-turn instead
+- Bounce window `TAP_BOUNCE_MS` (90ms) drops duplicate native + software toggles
+- Swipes do not change pages while blank
+- Exit is **Menu → Exit** (`shutDownPageContainer(1)`), not double tap
+
+If Even OS ever consumes double press as system Back and the plugin never receives `DOUBLE_CLICK_EVENT`, Quick Blank will not fire from that gesture. This build still listens for the documented SDK event (same handler Even’s first-app sample uses).
+
+Menu item IDs (SDK `menuObject` / `menuItemClickEvent`, 0.0.14+): Refresh, Previous Page, Next Page, Clear, Short Answer, Exit.
 
 ## Tests
 

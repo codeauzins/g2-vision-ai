@@ -1,7 +1,7 @@
 import type { JobView, PollOutcome, ScreenKind } from './types.js';
 import { compactAnswer, formatHudPage, paginate } from './pagination.js';
 
-export const TITLE = 'Ask AI b-02';
+export const TITLE = 'Ask AI b-03';
 
 export function classifyFetchError(err: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'App authentication failed.';
@@ -33,6 +33,30 @@ export function decidePoll(lastKey: string | undefined, job: JobView | null): Po
   if (job.status === 'error') return { kind: 'error', job };
   if (job.status === 'complete' && job.answer) return { kind: 'complete', job };
   return { kind: 'error', job: { ...job, error: 'Malformed result' } };
+}
+
+export function glassesErrorFromOpenAICheck(check: {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  openaiKeySet?: boolean;
+}): string {
+  if (check.ok) return '';
+  if (!check.openaiKeySet || check.code === 'openai_auth') {
+    return 'OpenAI key rejected. Check Render OPENAI_API_KEY.';
+  }
+  return check.error || 'OpenAI key check failed.';
+}
+
+export function checkingScreen(): {
+  kind: ScreenKind;
+  title: string;
+  body: string;
+  pages: string[];
+  pageIndex: number;
+} {
+  const body = 'Checking OpenAI key…';
+  return { kind: 'checking', title: TITLE, body, pages: [body], pageIndex: 0 };
 }
 
 export function waitingScreen(): {
@@ -88,12 +112,12 @@ export function errorScreen(message: string): {
   pages: string[];
   pageIndex: number;
 } {
-  const body = `${message}\n\nTap to retry. Double-tap to exit.`;
+  const body = `${message}\n\nTap to retry. Menu → Exit to leave.`;
   return { kind: 'error', title: TITLE, body, pages: [body], pageIndex: 0 };
 }
 
 export function renderScreen(kind: ScreenKind, title: string, body: string, index: number, total: number): string {
-  if (kind === 'waiting') {
+  if (kind === 'waiting' || kind === 'checking') {
     return formatHudPage(title, body, 0, 1);
   }
   return formatHudPage(title, body, index, Math.max(1, total));

@@ -15,9 +15,8 @@ This backend uses `client.responses.create` with `instructions` plus a user cont
 - [Hardware / Developer Mode](https://hub.evenrealities.com/docs/get-started/quickstart/hardware)
 - [Display & UI](https://hub.evenrealities.com/docs/build/display)
 - [Design guidelines](https://hub.evenrealities.com/docs/build/design-guidelines)
-- [Device APIs](https://hub.evenrealities.com/docs/build/device-apis) — events, `setLocalStorage`
-- [Contextual menu](https://hub.evenrealities.com/docs/build/contextual-menu)
-- [Page lifecycle](https://hub.evenrealities.com/docs/build/page-lifecycle)
+- [Device APIs](https://hub.evenrealities.com/docs/build/device-apis) — events, `setLocalStorage`, `DOUBLE_CLICK_EVENT` (G2 and R1)
+- [Page lifecycle](https://hub.evenrealities.com/docs/build/page-lifecycle) — `textContainerUpgrade`; `shutDownPageContainer` exits the app (not used for Quick Blank)
 - [Networking / whitelist](https://hub.evenrealities.com/docs/build/networking)
 - [Local Testing](https://hub.evenrealities.com/docs/test/local-testing)
 - [Private Testing](https://hub.evenrealities.com/docs/test/private-testing)

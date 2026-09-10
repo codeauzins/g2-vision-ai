@@ -7,15 +7,24 @@ import {
   TextContainerUpgrade,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
-import { fetchLatest, ApiError } from './api.js';
+import { fetchLatest, fetchOpenAIStatus, ApiError } from './api.js';
 import { loadAppConfig } from './config.js';
 import { demoJob } from './demo.js';
+import { createDoubleTapGuard } from './doubleTap.js';
+import {
+  applyPollWhileBlank,
+  hudContentFor,
+  toggleBlank,
+  type BlankSession,
+} from './quickBlank.js';
 import {
   classifyFetchError,
   decidePoll,
   displayKey,
   errorScreen,
   glassesErrorFromJob,
+  glassesErrorFromOpenAICheck,
+  checkingScreen,
   nextIndex,
   prevIndex,
   processingScreen,
@@ -35,17 +44,22 @@ const MENU = {
   next: 3,
   clear: 4,
   shortAnswer: 5,
+  exit: 6,
 } as const;
 
 const config = loadAppConfig();
 const bridge = await waitForEvenAppBridge();
 
-let screen: GlassesScreen = { ...waitingScreen() };
+let screen: GlassesScreen = { ...checkingScreen() };
 let lastSeenKey: string | undefined;
 let compact = false;
 let currentAnswer = '';
 let pollTick = 0;
 let started = false;
+let openaiReady = false;
+let isDisplayBlank = false;
+let restorePageIndex = 0;
+const tapGuard = createDoubleTapGuard();
 
 const mainText = new TextContainerProperty({
   xPosition: 0,
@@ -73,6 +87,7 @@ const createResult = await bridge.createStartUpPageContainer(
         new MenuItemProperty({ itemName: 'Next Page', itemID: MENU.next }),
         new MenuItemProperty({ itemName: 'Clear', itemID: MENU.clear }),
         new MenuItemProperty({ itemName: 'Short Answer', itemID: MENU.shortAnswer }),
+        new MenuItemProperty({ itemName: 'Exit', itemID: MENU.exit }),
       ],
     }),
   }),
@@ -95,38 +110,90 @@ bridge.onEvenHubEvent((event) => {
     return;
   }
 
+  const sysType = event.sysEvent?.eventType;
+  if (sysType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+    onDoubleTap();
+    return;
+  }
+
   const textEvent = event.textEvent;
   if (textEvent && textEvent.containerID === MAIN_ID) {
     switch (textEvent.eventType) {
+      case OsEventTypeList.DOUBLE_CLICK_EVENT:
+        onDoubleTap();
+        break;
       case OsEventTypeList.CLICK_EVENT:
       case undefined:
-        if (screen.kind === 'result') {
-          turnPage(1);
-        } else if (screen.kind === 'error' || screen.kind === 'waiting') {
-          void pollOnce(true);
-        }
-        break;
-      case OsEventTypeList.DOUBLE_CLICK_EVENT:
-        void bridge.shutDownPageContainer(1);
+        onPossibleClick();
         break;
       case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-        turnPage(1);
+        if (!isDisplayBlank) turnPage(1);
         break;
       case OsEventTypeList.SCROLL_TOP_EVENT:
-        turnPage(-1);
+        if (!isDisplayBlank) turnPage(-1);
         break;
     }
   }
 });
 
 if (config.mockApi) {
+  openaiReady = true;
   applyComplete(demoJob());
 } else {
   void startPolling();
 }
 
 function paint(): string {
-  return renderScreen(screen.kind, screen.title, screen.body, screen.pageIndex, screen.pages.length);
+  return hudContentFor(blankSession(), renderScreen(screen.kind, screen.title, screen.body, screen.pageIndex, screen.pages.length));
+}
+
+function blankSession(): BlankSession {
+  return {
+    isDisplayBlank,
+    screen,
+    currentAnswer,
+    compact,
+    restorePageIndex,
+  };
+}
+
+function adopt(next: BlankSession): void {
+  isDisplayBlank = next.isDisplayBlank;
+  screen = next.screen;
+  currentAnswer = next.currentAnswer;
+  compact = next.compact;
+  restorePageIndex = next.restorePageIndex;
+}
+
+function onDoubleTap(): void {
+  const result = tapGuard.onNativeDouble(Date.now());
+  if (result.action !== 'toggle') return;
+  adopt(toggleBlank(blankSession()));
+  void redraw();
+}
+
+function onPossibleClick(): void {
+  const result = tapGuard.onClick(Date.now());
+  if (result.action === 'toggle') {
+    adopt(toggleBlank(blankSession()));
+    void redraw();
+    return;
+  }
+  if (result.action !== 'wait') return;
+  const token = result.token;
+  window.setTimeout(() => {
+    const later = tapGuard.onWaitElapsed(token, Date.now());
+    if (later.action === 'single') onSingleTap();
+  }, tapGuard.windowMs);
+}
+
+function onSingleTap(): void {
+  if (isDisplayBlank) return;
+  if (screen.kind === 'result') {
+    turnPage(1);
+  } else if (screen.kind === 'error' || screen.kind === 'waiting') {
+    void pollOnce(true);
+  }
 }
 
 async function redraw(): Promise<void> {
@@ -140,6 +207,7 @@ async function redraw(): Promise<void> {
 }
 
 function turnPage(delta: number): void {
+  if (isDisplayBlank) return;
   if (screen.kind !== 'result' || screen.pages.length <= 1) return;
   const index =
     delta > 0
@@ -163,14 +231,19 @@ async function onMenu(itemID: number): Promise<void> {
     case MENU.clear:
       currentAnswer = '';
       compact = false;
-      screen = { ...waitingScreen() };
+      isDisplayBlank = false;
+      screen = openaiReady ? { ...waitingScreen() } : { ...checkingScreen() };
       await redraw();
       break;
     case MENU.shortAnswer:
       if (!currentAnswer) return;
       compact = !compact;
+      isDisplayBlank = false;
       screen = resultScreen(currentAnswer, 0, compact);
       await redraw();
+      break;
+    case MENU.exit:
+      void bridge.shutDownPageContainer(1);
       break;
     default:
       break;
@@ -188,10 +261,12 @@ async function startPolling(): Promise<void> {
 
 async function pollOnce(force: boolean): Promise<void> {
   if (config.mockApi) {
+    openaiReady = true;
     applyComplete(demoJob());
     return;
   }
   if (!config.apiBaseUrl || !config.deviceSecret) {
+    isDisplayBlank = false;
     screen = errorScreen(
       !config.apiBaseUrl
         ? 'Backend URL is not set. Rebuild with VITE_API_BASE_URL.'
@@ -202,10 +277,30 @@ async function pollOnce(force: boolean): Promise<void> {
   }
 
   try {
+    if (!openaiReady || force) {
+      const status = await fetchOpenAIStatus(config.apiBaseUrl, config.deviceSecret);
+      if (!status.ok) {
+        openaiReady = false;
+        isDisplayBlank = false;
+        screen = errorScreen(glassesErrorFromOpenAICheck(status));
+        await redraw();
+        return;
+      }
+      openaiReady = true;
+    }
+
     const latest = await fetchLatest(config.apiBaseUrl, config.deviceSecret);
     const decision = decidePoll(force ? undefined : lastSeenKey, latest.result);
+    if (isDisplayBlank) {
+      const applied = applyPollWhileBlank(blankSession(), decision);
+      adopt(applied.session);
+      if (applied.rememberKey) await remember(applied.rememberKey);
+      if (applied.paint === 'none') return;
+      await redraw();
+      return;
+    }
     if (decision.kind === 'empty') {
-      if (screen.kind === 'processing' || screen.kind === 'error') {
+      if (screen.kind !== 'waiting' && screen.kind !== 'result') {
         screen = { ...waitingScreen() };
         await redraw();
       }
@@ -233,6 +328,7 @@ async function pollOnce(force: boolean): Promise<void> {
     await redraw();
   } catch (err) {
     const status = err instanceof ApiError ? err.status : undefined;
+    isDisplayBlank = false;
     screen = errorScreen(classifyFetchError(err, status));
     await redraw();
   }

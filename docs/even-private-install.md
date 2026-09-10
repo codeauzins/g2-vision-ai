@@ -143,7 +143,9 @@ Icon: greyscale `even-app/public/icon.png` (24×24). Color icons are rejected at
 
 ## 8. Confirm it is running
 
-HUD should say **Ready** / press Action Button. Double-tap must show the **system** exit confirmation (required by Even QA; the app uses `shutDownPageContainer(1)`).
+HUD should say **Checking OpenAI key…** then **Ready** / press Action Button once Render’s `OPENAI_API_KEY` passes `GET /api/openai`.
+
+**Quick Blank:** R1 (or temple) double tap blanks the HUD without leaving Ask AI. Double tap again restores the last page. A new photo result wakes the HUD. Exit is **tap then long-press → Exit** (system `shutDownPageContainer(1)` dialog).
 
 Then run the Shortcut once. Glasses: Photo received → Analyzing → paged answer. Swipe down for page 2.
 
