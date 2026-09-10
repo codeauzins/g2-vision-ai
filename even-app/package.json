@@ -10,7 +10,7 @@
     "test": "vitest run",
     "lint": "eslint src tests",
     "preview": "vite preview",
-    "pack": "node scripts/sync-whitelist.mjs && npm run build && evenhub pack app.json dist -o g2-vision-ai.ehpk",
+    "pack": "node scripts/sync-whitelist.mjs && npm run build && evenhub pack app.json dist --sdk-ver 0.0.15 -o g2-vision-ai.ehpk",
     "simulate": "evenhub-simulator http://localhost:5173"
   },
   "dependencies": {
