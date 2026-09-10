@@ -28,6 +28,31 @@ If it is still missing:
 
 You can skip QR entirely: still log into the web hub (required for Private builds), then jump to section 6.
 
+## 1b. Phone app: where “Even Hub” actually is
+
+Do this on the **iPhone Even Realities app**. Not the glasses. Not iOS Settings. Not the website.
+
+**“Developer Mode” is not a menu item.** Even does not add a screen with that name. After you log into the website, the phone app quietly adds extra buttons on an existing tab.
+
+1. Unlock the iPhone. Open the green **Even Realities** app (the companion app you used to pair the G2).
+2. Look at the **bottom bar** of that app. One item is the plugin store / Hub. Official docs call it **Even Hub**. On some builds it may read **Hub**, **Apps**, or a puzzle/grid icon. Tap that — not Devices, not Chat/Conversate, not the glasses battery page.
+3. You should see a catalog of Hub apps (first-party plugins, maybe empty). That **whole screen** is the Even Hub tab.
+4. **Top-right of this screen** is where Scan QR / developer tools appear *after* website login + force-quit. If top-right is empty, Developer Mode has not attached to this phone login yet.
+5. **Profile / Me** is usually a person icon (bottom bar or top of Hub). For the `.ehpk` you already uploaded:
+
+   - **Me → Apps → Private builds** → **Ask AI** → Install  
+   or  
+   - **Me → Beta tester** if you pushed a beta group instead.
+
+If you cannot find any Hub tab at all:
+
+- Install/reinstall from [evenapp.evenrealities.com](https://evenapp.evenrealities.com) (Even’s current download link; App Store copies can lag).
+- Finish pairing the G2; some first-run flows hide Hub until a device is connected.
+- Confirm you are signed **into the phone app** with the same email as [hub.evenrealities.com](https://hub.evenrealities.com/login).
+- Force-quit: swipe up from the bottom, hold, flick Even Realities **off** the app switcher, reopen it.
+
+Ignore iPhone **Settings → Privacy & Security → Developer Mode**. That is Apple/Xcode. It does nothing for Even Hub.
+
 ## 2. Tooling on your Mac
 
 ```bash
