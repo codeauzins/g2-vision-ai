@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { buildApp } from './app.js';
 import { createOpenAIClient } from './openai.js';
 import { FileResultStore, MemoryResultStore } from './storage.js';
+import { APP_VERSION } from './version.js';
 
 function loadLocalEnv(): void {
   for (const candidate of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../.env')]) {
@@ -42,7 +43,7 @@ const app = await buildApp({
 
 try {
   await app.listen({ port: config.port, host: '0.0.0.0' });
-  app.log.info({ port: config.port }, 'g2-vision-ai listening');
+  app.log.info({ port: config.port, version: APP_VERSION }, 'g2-vision-ai listening');
 } catch (err) {
   app.log.error(err);
   process.exit(1);

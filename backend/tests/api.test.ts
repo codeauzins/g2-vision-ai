@@ -82,6 +82,7 @@ describe('g2-vision-ai backend', () => {
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
+    expect(res.json().version).toMatch(/^v\.0\.1\.\d+-[0-9a-f]{7}$/);
     expect(res.json().shortcutAuth).toContain('form_token');
     await app.close();
   });

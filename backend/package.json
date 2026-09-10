@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node scripts/write-version.mjs && tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "build": "node scripts/write-version.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "node scripts/write-version.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/write-version.mjs && vitest run",
     "lint": "eslint src tests"
   },
   "dependencies": {

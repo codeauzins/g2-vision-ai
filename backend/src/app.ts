@@ -9,6 +9,7 @@ import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl 
 import { parseMode } from './modes.js';
 import type { VisionClient } from './openai.js';
 import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
+import { APP_VERSION } from './version.js';
 
 export type AppDeps = {
   config: AppConfig;
@@ -127,6 +128,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/health', async () => ({
     ok: true,
     service: 'g2-vision-ai',
+    version: APP_VERSION,
     time: new Date(now()).toISOString(),
     shortcutAuth: ['bearer', 'query_token', 'form_token'],
   }));
