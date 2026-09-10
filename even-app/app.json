@@ -1,7 +1,7 @@
 {
   "package_id": "com.codeauzins.g2visionai",
-  "name": "Ask AI",
-  "version": "0.1.0",
+  "name": "Ask AI b-01",
+  "version": "0.1.1",
   "edition": "202601",
   "min_sdk_version": "0.0.15",
   "entrypoint": "index.html",
@@ -9,8 +9,12 @@
     {
       "name": "network",
       "desc": "Polls your Render backend for the latest photo analysis. Does not send photos from the glasses.",
-      "whitelist": ["https://g2-vision-ai.onrender.com"]
+      "whitelist": [
+        "https://g2-vision-ai.onrender.com"
+      ]
     }
   ],
-  "supported_languages": ["en"]
+  "supported_languages": [
+    "en"
+  ]
 }
