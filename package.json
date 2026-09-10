@@ -1,0 +1,30 @@
+{
+  "name": "g2-vision-ai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Action Button photo → Render → OpenAI vision → Even G2 HUD",
+  "workspaces": [
+    "backend",
+    "even-app"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,g2 -c magenta,cyan \"npm run dev -w backend\" \"npm run dev -w even-app\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:app": "npm run dev -w even-app",
+    "build": "npm run build -w backend && npm run build -w even-app",
+    "test": "npm run test -w backend && npm run test -w even-app",
+    "lint": "npm run lint -w backend && npm run lint -w even-app",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w even-app",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pack": "npm run pack -w even-app",
+    "simulate": "npm run simulate -w even-app"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.6.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
