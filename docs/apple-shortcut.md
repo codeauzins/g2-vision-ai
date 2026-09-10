@@ -35,39 +35,34 @@ Output of this action is a photo. iPhones often produce HEIC. OpenAI and this ba
 
 If Convert Image is missing on your iOS version, add **Adjust Date** is not a workaround — instead use **Encode Media** / check that Take Photo is set to capture JPEG in its options. On current iOS, Convert Image is the reliable path.
 
-### 3. Get Contents of URL
+### 3. Get Contents of URL (do not use File if headers disappear)
 
-This is the upload.
+Use **Form**, not File. Headers still work, and this backend accepts that format.
 
-- Search: **Get Contents of URL**
-- URL: `https://YOUR-SERVICE.onrender.com/api/analyze?mode=general&device_id=iphone`
+1. Add **Get Contents of URL**.
+2. URL:
 
-Tap **Show More**:
+`https://g2-vision-ai.onrender.com/api/analyze`
 
-- Method: **POST**
-- Headers: add one header
-  - Key: `Authorization`
-  - Value: `Bearer YOUR_DEVICE_SECRET`
-- Request Body: **File**
-- File: the **Convert Image** result
-- If there is a “Form” / “JSON” picker, use **File**, not JSON.
+3. Tap **Show More**.
+4. Method: **POST**.
+5. Request Body: **Form** (not File, not JSON).
+6. Add these Form fields:
 
-If your iOS build refuses a raw File body and only offers Form:
+| Key | Type | Value |
+| --- | --- | --- |
+| `image` | File | the **Convert Image** result |
+| `token` | Text | your `G2_DEVICE_SECRET` / `VITE_DEVICE_SECRET` (the hex only, no `Bearer`) |
+| `mode` | Text | `general` |
+| `device_id` | Text | `iphone` |
 
-- Request Body: **Form**
-- Add a field:
-  - Key: `image`
-  - Type: **File**
-  - Value: Convert Image result
-- Optional fields:
-  - `mode` = `general`
-  - `device_id` = `iphone`
+If you still prefer File body: Headers will be missing on some iOS versions. Put the secret in the URL instead:
 
-The backend accepts both raw JPEG and multipart `image=`.
+`https://g2-vision-ai.onrender.com/api/analyze?mode=general&device_id=iphone&token=YOUR_SECRET`
 
-Do **not** add an OpenAI header. Do **not** set `Content-Type` by hand unless the File body path needs it; if you must:
+Request Body: **File** → Convert Image result. No headers needed.
 
-- `Content-Type`: `image/jpeg`
+Do **not** add an OpenAI header.
 
 ### 4. Stop and Do Not Show the Result
 
@@ -107,7 +102,7 @@ V1 default is `general`. You do not need extra Shortcuts to ship.
 | Message / behavior | Fix |
 | --- | --- |
 | Could not connect | Render URL wrong, or service sleeping — open `/health` in Safari first |
-| 401 | Bearer token ≠ `G2_DEVICE_SECRET` (must include the word `Bearer` and a space) |
+| 401 | Secret mismatch. On Form, `token` must be the hex only. If you used File, put `?token=` in the URL after Render has the latest deploy. |
 | HEIC / unsupported_type | Convert Image to JPEG is missing or not wired to the photo |
 | File too large | Convert Image quality too high on a 48MP shot — still should fit 8 MB after JPEG; if not, add **Resize Image** longest edge 1920 before upload |
 | 202 JSON on screen | Remove any “Show Result” / “Quick Look” actions |

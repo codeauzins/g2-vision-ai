@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import type { AppConfig } from './config.js';
-import { bearerToken, newJobId, secretsEqual } from './auth.js';
+import { requestToken, newJobId, secretsEqual } from './auth.js';
 import { HttpError, httpError } from './errors.js';
 import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl } from './image.js';
 import { parseMode } from './modes.js';
@@ -33,7 +33,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: {
       level: process.env.LOG_LEVEL || 'info',
       redact: {
-        paths: ['req.headers.authorization', 'headers.authorization'],
+        paths: [
+          'req.headers.authorization',
+          'headers.authorization',
+          'req.query.token',
+          'req.query.secret',
+        ],
         remove: true,
       },
     },
@@ -93,11 +98,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
   });
 
-  function requireAuth(header: string | undefined): void {
+  function requireAuth(
+    request: {
+      headers: { authorization?: string; 'x-g2-token'?: string | string[] };
+      query?: unknown;
+    },
+    extraToken?: string,
+  ): void {
     if (!config.deviceSecret) {
       throw httpError(500, 'server_misconfigured', 'G2_DEVICE_SECRET is not set');
     }
-    if (!secretsEqual(config.deviceSecret, bearerToken(header))) {
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const headerToken = request.headers['x-g2-token'];
+    const provided = requestToken({
+      authorization: request.headers.authorization,
+      xToken: Array.isArray(headerToken) ? headerToken[0] : headerToken,
+      queryToken:
+        extraToken ||
+        asString(query.token) ||
+        asString(query.secret) ||
+        asString(query.access_token),
+    });
+    if (!secretsEqual(config.deviceSecret, provided)) {
       throw httpError(401, 'unauthorized', 'App authentication failed.');
     }
   }
@@ -109,7 +131,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }));
 
   app.post('/api/analyze', async (request, reply) => {
-    requireAuth(request.headers.authorization);
     await store.purgeExpired(now());
 
     const query = request.query as Record<string, unknown>;
@@ -117,6 +138,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     let mode = parseMode(query.mode);
     let question = asString(query.question);
     let deviceId = asString(query.device_id) || asString(query.deviceId) || asString(request.headers['x-device-id']);
+    let formToken: string | undefined;
 
     if (request.isMultipart()) {
       const parsed = await readMultipart(request);
@@ -124,7 +146,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       mode = parseMode(parsed.fields.mode ?? mode);
       question = parsed.fields.question ?? question;
       deviceId = parsed.fields.device_id ?? parsed.fields.deviceId ?? deviceId;
+      formToken = parsed.fields.token ?? parsed.fields.secret;
     }
+
+    requireAuth(request, formToken);
 
     if (!image) {
       throw httpError(400, 'missing_image', 'No image was uploaded.');
@@ -203,7 +228,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/result/:jobId', async (request) => {
-    requireAuth(request.headers.authorization);
+    requireAuth(request);
     await store.purgeExpired(now());
     const { jobId } = request.params as { jobId: string };
     const job = await store.get(jobId);
@@ -214,7 +239,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/latest', async (request) => {
-    requireAuth(request.headers.authorization);
+    requireAuth(request);
     await store.purgeExpired(now());
     const job = await store.latest();
     if (!job) {

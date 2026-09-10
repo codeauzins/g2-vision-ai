@@ -85,6 +85,20 @@ describe('g2-vision-ai backend', () => {
     await app.close();
   });
 
+  it('accepts a Shortcut-style query token with a raw JPEG body', async () => {
+    const { app } = await makeApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/analyze?mode=general&device_id=iphone&token=${SECRET}`,
+      headers: { 'content-type': 'image/jpeg' },
+      payload: await jpeg(48),
+    });
+    expect(res.statusCode).toBe(202);
+    const done = await waitForJob(app, String(res.json().jobId));
+    expect(done.json().status).toBe('complete');
+    await app.close();
+  });
+
   it('rejects unauthorized analyze', async () => {
     const { app } = await makeApp();
     const res = await app.inject({
