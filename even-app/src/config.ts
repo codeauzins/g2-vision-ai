@@ -13,7 +13,7 @@ function env(name: string): string {
 export function loadAppConfig(): AppConfig {
   const mockApi = env('VITE_MOCK_API') === 'true';
   return {
-    apiBaseUrl: env('VITE_API_BASE_URL').replace(/\/$/, ''),
+    apiBaseUrl: (env('VITE_API_BASE_URL') || 'https://g2-vision-ai.onrender.com').replace(/\/$/, ''),
     deviceSecret: env('VITE_DEVICE_SECRET'),
     mockApi,
     pollMs: 1500,

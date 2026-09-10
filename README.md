@@ -94,7 +94,7 @@ Gestures (official event types):
 - Double-tap → system exit confirmation (`shutDownPageContainer(1)`)
 - Tap then long-press → contextual menu: Refresh, Previous Page, Next Page, Clear, Short Answer
 
-Build-time env (`even-app/.env.local`): `VITE_API_BASE_URL`, `VITE_DEVICE_SECRET`, `VITE_MOCK_API`. After you know the Render URL, put the same origin in `app.json` `network.whitelist` (or run `npm run pack`, which syncs it).
+Build-time env (`even-app/.env.local`): `VITE_API_BASE_URL`, `VITE_DEVICE_SECRET`, `VITE_MOCK_API`. These are **not** Render env vars. See [docs/glasses-config.md](docs/glasses-config.md).
 
 Private install: [docs/even-private-install.md](docs/even-private-install.md). Pagination: [docs/g2-pagination.md](docs/g2-pagination.md).
 
@@ -117,14 +117,15 @@ Cold start: the first request after idle can take tens of seconds. The glasses a
 | `OPENAI_API_KEY` | Render only | Never in git, Shortcut, or the Even app |
 | `OPENAI_MODEL` | Render | Default `gpt-4o-mini` |
 | `G2_DEVICE_SECRET` | Render + Shortcut + `VITE_DEVICE_SECRET` | Long random bearer token |
+| `G2_DATA_DIR` | Render | `/var/data2` — stores answer JSON only, not photos |
 | `PORT` | Render | Provided automatically |
 | `RESULT_TTL_SECONDS` | Render | Default 3600 |
 | `MAX_UPLOAD_MB` | Render | Default 8 |
 | `IMAGE_MAX_EDGE` | Render | Default 1600 |
 | `IMAGE_JPEG_QUALITY` | Render | Default 80 |
-| `VITE_API_BASE_URL` | Even app build | `https://YOUR-SERVICE.onrender.com` |
-| `VITE_DEVICE_SECRET` | Even app build | Same as `G2_DEVICE_SECRET` |
-| `VITE_MOCK_API` | Even app build | `true` for demo pages |
+| `VITE_API_BASE_URL` | Mac (`even-app/.env.local`) | Default `https://g2-vision-ai.onrender.com` — not a Render env var |
+| `VITE_DEVICE_SECRET` | Mac (`even-app/.env.local`) | Same as `G2_DEVICE_SECRET` — not a Render env var |
+| `VITE_MOCK_API` | Mac (`even-app/.env.local`) | `true` for demo pages |
 
 Generate a secret:
 

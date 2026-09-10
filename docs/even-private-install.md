@@ -2,25 +2,31 @@
 
 Verified against Even Hub docs (2026): [Enable Developer Mode](https://hub.evenrealities.com/docs/get-started/quickstart/hardware), [Your First App](https://hub.evenrealities.com/docs/get-started/quickstart/first-app), [Local Testing](https://hub.evenrealities.com/docs/test/local-testing), [Private Testing](https://hub.evenrealities.com/docs/test/private-testing), [Packaging](https://hub.evenrealities.com/docs/ship/packaging).
 
-There is no public App Store-style install for an unpublished plugin. You use **Developer Mode**, then either **Scan QR** (dev server) or **Private builds** (`.ehpk`).
+There is no public App Store-style install for an unpublished plugin.
 
-## 0. Hardware
+**You do not need Scan QR to use Ask AI on your own G2.** Scan QR is only a live-reload trick for laptop development. For a real install, use **Private builds** (`.ehpk`) below.
 
-- Even Realities G2 paired with the **Even Realities** iPhone app
-- Glasses out of shipment mode, firmware current
-- Account created **inside the phone app** (this is the canonical account)
+## 1. Developer Mode (why Scan QR is missing)
 
-## 1. Developer account / Developer Mode
+There is **no** Settings toggle named Developer Mode.
 
-There is **no in-app toggle** named “developer mode”. Signing into the web hub with the same account enables it.
+Scan QR stays hidden until Even decides your **account** is a developer account:
 
-1. On a computer, open [https://hub.evenrealities.com/login](https://hub.evenrealities.com/login)
-2. Sign in with the **same** Even Realities account as the phone app
-3. Force-quit the Even Realities iPhone app and reopen it
-4. Open the **Even Hub** tab
-5. A developer section appears at the top right, including **Scan QR**
+1. In the **iPhone Even Realities app**, note the email you signed in with (Profile / Me).
+2. On a computer, open [https://hub.evenrealities.com/login](https://hub.evenrealities.com/login).
+3. Sign in with **that exact same email**. First web login is what flips Developer Mode on.
+4. On iPhone: swipe the Even Realities app **out of the app switcher** (force quit), then open it again. Backgrounding is not enough.
+5. Open the **Even Hub** tab (bottom of the phone app, not Settings, not the glasses home screen).
+6. Look at the **top-right of that tab**. Scan QR and other dev tools appear there only after step 3–4.
 
-If Scan QR is missing: wrong account, or the phone app was not fully restarted.
+If it is still missing:
+
+- Phone and website are different accounts (Apple vs email, typo, second Even login).
+- App was not force-quit after the **web** login.
+- Even Realities iPhone app is old — update it from the App Store.
+- You are looking in the wrong place (glasses menu / iOS Settings / Action Button). It is only on the **Even Hub** tab.
+
+You can skip QR entirely: still log into the web hub (required for Private builds), then jump to section 6.
 
 ## 2. Tooling on your Mac
 
@@ -39,10 +45,12 @@ Even Hub `fetch()` requires the **exact origin** in `app.json` `permissions.netw
 
 ```bash
 cp even-app/.env.example even-app/.env.local
-# VITE_API_BASE_URL=https://YOUR-SERVICE.onrender.com
-# VITE_DEVICE_SECRET=same-as-render
+# VITE_API_BASE_URL=https://g2-vision-ai.onrender.com
+# VITE_DEVICE_SECRET=same-as-G2_DEVICE_SECRET-on-Render
 # VITE_MOCK_API=false
 ```
+
+See [docs/glasses-config.md](glasses-config.md). These are Mac build variables, not Render.
 
 For QR daily development against a laptop API, whitelist will not include `http://192.168.x.x:8787` unless you add it. Easier: mock UI (`VITE_MOCK_API=true`) or deploy Render first and whitelist that HTTPS origin.
 

@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
 export type JobStatus = 'processing' | 'complete' | 'error';
 
 export type JobRecord = {
@@ -34,8 +38,8 @@ export function toJobView(job: JobRecord): JobView {
  * Swap this class for Redis/Postgres later; callers only use ResultStore.
  */
 export class MemoryResultStore implements ResultStore {
-  private readonly jobs = new Map<string, JobRecord>();
-  private latestId: string | undefined;
+  protected readonly jobs = new Map<string, JobRecord>();
+  protected latestId: string | undefined;
 
   async create(job: JobRecord): Promise<void> {
     this.jobs.set(job.jobId, job);
@@ -77,5 +81,59 @@ export class MemoryResultStore implements ResultStore {
       this.latestId = newest?.jobId;
     }
     return removed;
+  }
+}
+
+type FileShape = { latestId?: string; jobs: JobRecord[] };
+
+/**
+ * Persists job JSON (not photos) to a disk directory such as Render /var/data2.
+ */
+export class FileResultStore extends MemoryResultStore {
+  constructor(private readonly filePath: string) {
+    super();
+    this.loadSync();
+  }
+
+  override async create(job: JobRecord): Promise<void> {
+    await super.create(job);
+    await this.flush();
+  }
+
+  override async update(jobId: string, patch: Partial<JobRecord>): Promise<JobRecord | undefined> {
+    const next = await super.update(jobId, patch);
+    await this.flush();
+    return next;
+  }
+
+  override async purgeExpired(now = Date.now()): Promise<number> {
+    const removed = await super.purgeExpired(now);
+    if (removed > 0) await this.flush();
+    return removed;
+  }
+
+  private loadSync(): void {
+    try {
+      if (!existsSync(this.filePath)) return;
+      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as FileShape;
+      const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+      for (const job of jobs) {
+        if (job?.jobId) this.jobs.set(job.jobId, job);
+      }
+      this.latestId = parsed.latestId;
+      if (this.latestId && !this.jobs.has(this.latestId)) this.latestId = undefined;
+    } catch {
+      this.jobs.clear();
+      this.latestId = undefined;
+    }
+  }
+
+  private async flush(): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    const payload: FileShape = {
+      latestId: this.latestId,
+      jobs: [...this.jobs.values()],
+    };
+    await writeFile(this.filePath, JSON.stringify(payload), 'utf8');
   }
 }

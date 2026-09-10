@@ -10,6 +10,8 @@ export type AppConfig = {
   imageJpegQuality: number;
   rateLimitMax: number;
   rateLimitWindowMs: number;
+  /** Directory for JSON job persistence (answers only, never photos). Empty = memory. */
+  dataDir: string;
 };
 
 function num(name: string, fallback: number): number {
@@ -37,5 +39,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     imageJpegQuality: num('IMAGE_JPEG_QUALITY', 80),
     rateLimitMax: num('RATE_LIMIT_MAX', 30),
     rateLimitWindowMs: num('RATE_LIMIT_WINDOW_MS', 60_000),
+    dataDir: (env.G2_DATA_DIR || '').trim(),
   };
 }

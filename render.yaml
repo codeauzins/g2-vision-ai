@@ -25,3 +25,5 @@ services:
         sync: false
       - key: G2_DEVICE_SECRET
         sync: false
+      - key: G2_DATA_DIR
+        value: /var/data2

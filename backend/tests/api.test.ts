@@ -1,8 +1,11 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import sharp from 'sharp';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
-import { MemoryResultStore } from '../src/storage.js';
+import { FileResultStore, MemoryResultStore } from '../src/storage.js';
 import type { VisionClient } from '../src/openai.js';
 
 const SECRET = 'test-device-secret';
@@ -273,5 +276,27 @@ describe('memory store', () => {
     expect(await store.latest()).toBeUndefined();
     expect(await store.get('missing')).toBeUndefined();
     expect(await store.purgeExpired()).toBe(0);
+  });
+});
+
+describe('file store', () => {
+  it('reloads jobs from disk', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'g2-store-'));
+    const file = join(dir, 'jobs.json');
+    const first = new FileResultStore(file);
+    await first.create({
+      jobId: 'a',
+      status: 'complete',
+      seq: 1,
+      mode: 'general',
+      answer: 'ok',
+      createdAt: 't',
+      updatedAt: 't',
+      expiresAt: Date.now() + 60_000,
+    });
+    const second = new FileResultStore(file);
+    const latest = await second.latest();
+    expect(latest?.jobId).toBe('a');
+    expect(latest?.answer).toBe('ok');
   });
 });
