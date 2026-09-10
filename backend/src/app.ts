@@ -10,6 +10,7 @@ import { parseMode } from './modes.js';
 import type { VisionClient } from './openai.js';
 import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
 import { APP_VERSION } from './version.js';
+import { publicError } from './log.js';
 
 export type AppDeps = {
   config: AppConfig;
@@ -31,6 +32,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   let seq = 0;
 
   const app = Fastify({
+    disableRequestLogging: true,
     logger: {
       level: process.env.LOG_LEVEL || 'info',
       redact: {
@@ -76,6 +78,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof HttpError) {
+      request.log.warn(
+        {
+          method: request.method,
+          url: request.url,
+          statusCode: err.statusCode,
+          code: err.code,
+          error: err.message,
+        },
+        'http error',
+      );
       return reply.status(err.statusCode).send({
         ok: false,
         error: err.message,
@@ -84,14 +96,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     const status = (err as { statusCode?: number }).statusCode;
     if (status === 413) {
+      request.log.warn({ url: request.url }, 'payload too large');
       return reply.status(413).send({
         ok: false,
         error: 'Image is too large',
         code: 'too_large',
       });
     }
-    const message = err instanceof Error ? err.message : String(err);
-    request.log.error({ err: message }, 'unhandled');
+    request.log.error({ err: publicError(err), url: request.url, method: request.method }, 'unhandled');
     return reply.status(500).send({
       ok: false,
       error: 'Server error',
@@ -101,26 +113,51 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   function requireAuth(
     request: {
-      headers: { authorization?: string; 'x-g2-token'?: string | string[] };
+      log: FastifyInstance['log'];
+      method: string;
+      url: string;
+      headers: { authorization?: string; 'content-type'?: string; 'x-g2-token'?: string | string[] };
       query?: unknown;
     },
     extraToken?: string,
   ): void {
     if (!config.deviceSecret) {
+      request.log.error('G2_DEVICE_SECRET is not set');
       throw httpError(500, 'server_misconfigured', 'G2_DEVICE_SECRET is not set');
     }
     const query = (request.query ?? {}) as Record<string, unknown>;
     const headerToken = request.headers['x-g2-token'];
+    const queryTok = asString(query.token) || asString(query.secret) || asString(query.access_token);
     const provided = requestToken({
       authorization: request.headers.authorization,
       xToken: Array.isArray(headerToken) ? headerToken[0] : headerToken,
-      queryToken:
-        extraToken ||
-        asString(query.token) ||
-        asString(query.secret) ||
-        asString(query.access_token),
+      queryToken: extraToken || queryTok,
     });
+    if (!provided) {
+      request.log.warn(
+        {
+          method: request.method,
+          url: request.url.split('?')[0],
+          contentType: request.headers['content-type'],
+          hasBearerHeader: Boolean(request.headers.authorization),
+          hasQueryToken: Boolean(queryTok),
+          hasFormToken: Boolean(extraToken),
+        },
+        'auth failed: no token',
+      );
+      throw httpError(401, 'unauthorized', 'App authentication failed.');
+    }
     if (!secretsEqual(config.deviceSecret, provided)) {
+      request.log.warn(
+        {
+          method: request.method,
+          url: request.url.split('?')[0],
+          providedLen: provided.length,
+          expectedLen: config.deviceSecret.length,
+          hasFormToken: Boolean(extraToken),
+        },
+        'auth failed: token mismatch',
+      );
       throw httpError(401, 'unauthorized', 'App authentication failed.');
     }
   }
@@ -134,6 +171,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }));
 
   app.post('/api/analyze', async (request, reply) => {
+    const started = now();
+    request.log.info(
+      {
+        contentType: request.headers['content-type'],
+        contentLength: request.headers['content-length'],
+        multipart: request.isMultipart(),
+      },
+      'analyze request',
+    );
     await store.purgeExpired(now());
 
     const query = request.query as Record<string, unknown>;
@@ -142,6 +188,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     let question = asString(query.question);
     let deviceId = asString(query.device_id) || asString(query.deviceId) || asString(request.headers['x-device-id']);
     let formToken: string | undefined;
+    let formFieldNames: string[] = [];
 
     if (request.isMultipart()) {
       const parsed = await readMultipart(request);
@@ -150,6 +197,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       question = parsed.fields.question ?? question;
       deviceId = parsed.fields.device_id ?? parsed.fields.deviceId ?? deviceId;
       formToken = parsed.fields.token ?? parsed.fields.secret ?? parsed.fields.authorization;
+      formFieldNames = Object.keys(parsed.fields);
+      request.log.info(
+        {
+          formFields: formFieldNames,
+          hasImagePart: Boolean(parsed.image),
+          imagePartBytes: parsed.image?.buffer.length,
+          imagePartMime: parsed.image?.mimeType,
+        },
+        'analyze multipart parsed',
+      );
     }
 
     requireAuth(request, formToken);
@@ -188,12 +245,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     image.buffer.fill(0);
 
-    if (!config.openaiApiKey && process.env.NODE_ENV !== 'test') {
-      request.log.warn('OPENAI_API_KEY missing; jobs will fail until it is set');
-    }
-
     seq += 1;
     const jobId = newJobId();
+    if (!config.openaiApiKey) {
+      request.log.error({ jobId }, 'OPENAI_API_KEY is empty on this process');
+    }
     const createdAt = new Date(now()).toISOString();
     await store.create({
       jobId,
@@ -207,7 +263,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
 
     request.log.info(
-      { jobId, seq, mode, bytes: optimized.buffer.length, width: optimized.width, height: optimized.height },
+      {
+        jobId,
+        seq,
+        mode,
+        deviceId,
+        bytes: optimized.buffer.length,
+        width: optimized.width,
+        height: optimized.height,
+        parseMs: now() - started,
+        openaiKeySet: Boolean(config.openaiApiKey),
+        openaiModel: config.openaiModel,
+      },
       'upload received',
     );
 
@@ -246,8 +313,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     await store.purgeExpired(now());
     const job = await store.latest();
     if (!job) {
+      request.log.debug({ latest: null }, 'latest empty');
       return { ok: true, result: null };
     }
+    request.log.debug({ jobId: job.jobId, status: job.status, seq: job.seq }, 'latest');
     return { ok: true, result: toJobView(job) };
   });
 
@@ -261,10 +330,14 @@ async function processJob(input: {
   question?: string;
   vision: VisionClient;
   store: ResultStore;
-  log: { info: (obj: object, msg: string) => void; error: (obj: object, msg: string) => void };
+  log: {
+    info: (obj: object, msg: string) => void;
+    error: (obj: object, msg: string) => void;
+    warn: (obj: object, msg: string) => void;
+  };
 }): Promise<void> {
   const started = Date.now();
-  input.log.info({ jobId: input.jobId }, 'openai started');
+  input.log.info({ jobId: input.jobId, mode: input.mode }, 'openai started');
   try {
     const answer = await input.vision.analyze({
       imageDataUrl: input.dataUrl,
@@ -278,14 +351,21 @@ async function processJob(input: {
     });
     input.log.info({ jobId: input.jobId, ms: Date.now() - started }, 'result ready');
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'OpenAI failed';
+    const details = publicError(err);
+    const message = String(details.message || 'OpenAI failed');
     const timeout = /timeout|timed out/i.test(message);
-    input.log.error({ jobId: input.jobId, err: message }, 'openai failed');
+    const authFail = message === 'openai_auth' || details.status === 401;
+    input.log.error({ jobId: input.jobId, ms: Date.now() - started, ...details }, 'openai failed');
     await input.store.update(input.jobId, {
       status: 'error',
-      errorCode: timeout ? 'openai_timeout' : 'openai_error',
-      error: timeout ? 'AI timed out. Try another photo.' : 'AI could not analyze this photo.',
+      errorCode: authFail ? 'openai_auth' : timeout ? 'openai_timeout' : 'openai_error',
+      error: authFail
+        ? 'OpenAI key rejected. Check Render OPENAI_API_KEY.'
+        : timeout
+          ? 'AI timed out. Try another photo.'
+          : 'AI could not analyze this photo.',
     });
+    input.log.warn({ jobId: input.jobId, errorCode: authFail ? 'openai_auth' : timeout ? 'openai_timeout' : 'openai_error' }, 'job marked error');
   }
 }
 

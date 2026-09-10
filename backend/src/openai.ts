@@ -18,25 +18,34 @@ export class OpenAIVisionClient implements VisionClient {
   ) {}
 
   async analyze(input: VisionAnalyzeInput): Promise<string> {
-    const response = await this.client.responses.create({
-      model: this.model,
-      instructions: buildInstructions(input.mode, input.question),
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: userPrompt(input.mode, input.question) },
-            { type: 'input_image', image_url: input.imageDataUrl, detail: 'high' },
-          ],
-        },
-      ],
-    });
+    try {
+      const response = await this.client.responses.create({
+        model: this.model,
+        instructions: buildInstructions(input.mode, input.question),
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: userPrompt(input.mode, input.question) },
+              { type: 'input_image', image_url: input.imageDataUrl, detail: 'high' },
+            ],
+          },
+        ],
+      });
 
-    const text = response.output_text?.trim();
-    if (!text) {
-      throw new Error('OpenAI returned an empty answer');
+      const text = response.output_text?.trim();
+      if (!text) {
+        throw new Error('OpenAI returned an empty answer');
+      }
+      return text;
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      const message = err instanceof Error ? err.message : String(err);
+      if (status === 401 || /invalid api key|incorrect api key|unauthorized/i.test(message)) {
+        throw new Error('openai_auth');
+      }
+      throw err;
     }
-    return text;
   }
 }
 
@@ -45,6 +54,7 @@ export function createOpenAIClient(apiKey: string, baseUrl: string, model: strin
     new OpenAI({
       apiKey,
       baseURL: baseUrl,
+      timeout: 45_000,
     }),
     model,
   );

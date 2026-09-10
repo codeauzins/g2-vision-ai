@@ -13,6 +13,7 @@ import { demoJob } from './demo.js';
 import {
   classifyFetchError,
   decidePoll,
+  displayKey,
   errorScreen,
   glassesErrorFromJob,
   nextIndex,
@@ -40,7 +41,7 @@ const config = loadAppConfig();
 const bridge = await waitForEvenAppBridge();
 
 let screen: GlassesScreen = { ...waitingScreen() };
-let lastSeenId: string | undefined;
+let lastSeenKey: string | undefined;
 let compact = false;
 let currentAnswer = '';
 let pollTick = 0;
@@ -82,9 +83,9 @@ if (createResult !== 0) {
 }
 
 try {
-  lastSeenId = (await bridge.getLocalStorage(LAST_ID_KEY)) || undefined;
+  lastSeenKey = (await bridge.getLocalStorage(LAST_ID_KEY)) || undefined;
 } catch {
-  lastSeenId = undefined;
+  lastSeenKey = undefined;
 }
 
 bridge.onEvenHubEvent((event) => {
@@ -202,7 +203,7 @@ async function pollOnce(force: boolean): Promise<void> {
 
   try {
     const latest = await fetchLatest(config.apiBaseUrl, config.deviceSecret);
-    const decision = decidePoll(force ? undefined : lastSeenId, latest.result);
+    const decision = decidePoll(force ? undefined : lastSeenKey, latest.result);
     if (decision.kind === 'empty') {
       if (screen.kind === 'processing' || screen.kind === 'error') {
         screen = { ...waitingScreen() };
@@ -214,7 +215,7 @@ async function pollOnce(force: boolean): Promise<void> {
     if (decision.kind === 'processing') {
       pollTick += 1;
       screen = { ...processingScreen(pollTick), jobId: decision.job.jobId, seq: decision.job.seq };
-      await remember(decision.job.jobId);
+      await remember(displayKey(decision.job));
       await redraw();
       return;
     }
@@ -224,7 +225,7 @@ async function pollOnce(force: boolean): Promise<void> {
         jobId: decision.job.jobId,
         seq: decision.job.seq,
       };
-      await remember(decision.job.jobId);
+      await remember(displayKey(decision.job));
       await redraw();
       return;
     }
@@ -245,14 +246,14 @@ function applyComplete(job: JobView): void {
     jobId: job.jobId,
     seq: job.seq,
   };
-  lastSeenId = job.jobId;
-  void remember(job.jobId);
+  lastSeenKey = displayKey(job);
+  void remember(lastSeenKey);
 }
 
-async function remember(jobId: string): Promise<void> {
-  lastSeenId = jobId;
+async function remember(key: string): Promise<void> {
+  lastSeenKey = key;
   try {
-    await bridge.setLocalStorage(LAST_ID_KEY, jobId);
+    await bridge.setLocalStorage(LAST_ID_KEY, key);
   } catch {
     // Storage is optional; polling still de-dupes in memory.
   }

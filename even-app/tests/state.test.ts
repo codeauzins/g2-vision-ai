@@ -29,7 +29,15 @@ describe('result state', () => {
   });
 
   it('ignores the same completed job id', () => {
-    expect(decidePoll('job-1', job({ status: 'complete', answer: 'Hi' })).kind).toBe('same');
+    expect(decidePoll('job-1:complete', job({ status: 'complete', answer: 'Hi' })).kind).toBe('same');
+  });
+
+  it('shows an error after the same job leaves processing', () => {
+    const out = decidePoll(
+      'job-1:processing',
+      job({ status: 'error', error: 'AI could not analyze this photo.' }),
+    );
+    expect(out.kind).toBe('error');
   });
 
   it('treats a new processing job as processing', () => {

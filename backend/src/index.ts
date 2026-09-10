@@ -21,6 +21,9 @@ const config = loadConfig();
 if (!config.deviceSecret) {
   console.warn('G2_DEVICE_SECRET is empty. Authenticated routes will fail until it is set.');
 }
+if (!config.openaiApiKey) {
+  console.warn('OPENAI_API_KEY is empty. Vision jobs will fail until it is set.');
+}
 
 function openStore(dataDir: string) {
   if (!dataDir) return new MemoryResultStore();
@@ -43,7 +46,16 @@ const app = await buildApp({
 
 try {
   await app.listen({ port: config.port, host: '0.0.0.0' });
-  app.log.info({ port: config.port, version: APP_VERSION }, 'g2-vision-ai listening');
+  app.log.info(
+    {
+      port: config.port,
+      version: APP_VERSION,
+      openaiModel: config.openaiModel,
+      openaiKeySet: Boolean(config.openaiApiKey),
+      dataDir: config.dataDir || '(memory)',
+    },
+    'g2-vision-ai listening',
+  );
 } catch (err) {
   app.log.error(err);
   process.exit(1);

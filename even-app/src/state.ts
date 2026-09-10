@@ -1,7 +1,7 @@
 import type { JobView, PollOutcome, ScreenKind } from './types.js';
 import { compactAnswer, formatHudPage, paginate } from './pagination.js';
 
-export const TITLE = 'Ask AI b-01';
+export const TITLE = 'Ask AI b-02';
 
 export function classifyFetchError(err: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'App authentication failed.';
@@ -17,13 +17,18 @@ export function classifyFetchError(err: unknown, status?: number): string {
 
 export function glassesErrorFromJob(job: JobView): string {
   if (job.errorCode === 'openai_timeout') return 'AI timed out. Try another photo.';
+  if (job.errorCode === 'openai_auth') return 'OpenAI key rejected. Check Render OPENAI_API_KEY.';
   if (job.error) return job.error;
   return 'AI could not analyze this photo.';
 }
 
-export function decidePoll(lastSeenId: string | undefined, job: JobView | null): PollOutcome {
+export function displayKey(job: JobView): string {
+  return `${job.jobId}:${job.status}`;
+}
+
+export function decidePoll(lastKey: string | undefined, job: JobView | null): PollOutcome {
   if (!job) return { kind: 'empty' };
-  if (job.jobId === lastSeenId && job.status !== 'processing') return { kind: 'same' };
+  if (displayKey(job) === lastKey) return { kind: 'same' };
   if (job.status === 'processing') return { kind: 'processing', job };
   if (job.status === 'error') return { kind: 'error', job };
   if (job.status === 'complete' && job.answer) return { kind: 'complete', job };
