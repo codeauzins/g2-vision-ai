@@ -128,6 +128,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     ok: true,
     service: 'g2-vision-ai',
     time: new Date(now()).toISOString(),
+    shortcutAuth: ['bearer', 'query_token', 'form_token'],
   }));
 
   app.post('/api/analyze', async (request, reply) => {
@@ -146,7 +147,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       mode = parseMode(parsed.fields.mode ?? mode);
       question = parsed.fields.question ?? question;
       deviceId = parsed.fields.device_id ?? parsed.fields.deviceId ?? deviceId;
-      formToken = parsed.fields.token ?? parsed.fields.secret;
+      formToken = parsed.fields.token ?? parsed.fields.secret ?? parsed.fields.authorization;
     }
 
     requireAuth(request, formToken);
@@ -337,7 +338,7 @@ async function readMultipart(request: {
         };
       }
     } else if (part.fieldname && part.value != null) {
-      fields[part.fieldname] = String(part.value);
+      fields[part.fieldname.toLowerCase()] = String(part.value);
     }
   }
   return { image, fields };

@@ -6,17 +6,24 @@ export function bearerToken(header: string | undefined): string | undefined {
   return match?.[1]?.trim();
 }
 
-/** Token from Authorization, X-G2-Token, or Shortcut-friendly ?token= query. */
+/** Token from Authorization, X-G2-Token, or Shortcut-friendly ?token= / form token. */
 export function requestToken(input: {
   authorization?: string;
   xToken?: string;
   queryToken?: string;
 }): string | undefined {
-  return bearerToken(input.authorization) || asNonEmpty(input.xToken) || asNonEmpty(input.queryToken);
+  return (
+    bearerToken(input.authorization) ||
+    normalizeSecret(input.xToken) ||
+    normalizeSecret(input.queryToken)
+  );
 }
 
-function asNonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
+function normalizeSecret(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  let trimmed = value.trim().replace(/^["']|["']$/g, '');
+  const bearer = /^Bearer\s+(.+)$/i.exec(trimmed);
+  if (bearer) trimmed = bearer[1].trim();
   return trimmed || undefined;
 }
 
