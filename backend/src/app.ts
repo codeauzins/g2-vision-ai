@@ -66,7 +66,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(rateLimit, {
     max: config.rateLimitMax,
     timeWindow: config.rateLimitWindowMs,
-    allowList: (req) => req.url === '/health',
+    allowList: (req) => {
+      const path = (req.url || '').split('?')[0];
+      return path === '/health' || path === '/api/latest' || path === '/api/history' || path === '/api/openai';
+    },
   });
 
   await app.register(multipart, {

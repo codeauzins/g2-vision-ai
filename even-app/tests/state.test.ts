@@ -7,6 +7,7 @@ import {
   nextIndex,
   prevIndex,
   processingScreen,
+  shouldKeepHudOnPollError,
   waitingScreen,
 } from '../src/state.js';
 import type { JobView } from '../src/types.js';
@@ -71,8 +72,10 @@ describe('result state', () => {
   });
 
   it('maps glasses-safe network errors', () => {
-    expect(classifyFetchError(new Error('timeout'), 503)).toBe('Server waking up…');
+    expect(classifyFetchError(new Error('timeout'), 503)).toBe('Connection lost. Retrying…');
     expect(classifyFetchError(undefined, 401)).toBe('App authentication failed.');
     expect(classifyFetchError(new Error('Failed to fetch'))).toBe('Connection lost. Retrying…');
+    expect(shouldKeepHudOnPollError('result', true)).toBe(true);
+    expect(shouldKeepHudOnPollError('waiting', false)).toBe(false);
   });
 });

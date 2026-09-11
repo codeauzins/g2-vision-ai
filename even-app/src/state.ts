@@ -1,18 +1,25 @@
 import type { JobView, PollOutcome, ScreenKind } from './types.js';
 import { compactAnswer, formatHudPage, paginate } from './pagination.js';
 
-export const TITLE = 'Ask AI b-06';
+export const TITLE = 'Ask AI b-07';
 
 export function classifyFetchError(err: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'App authentication failed.';
   if (status === 429) return 'Too many requests. Waiting…';
-  if (status && status >= 500) return 'Server waking up…';
   const message = err instanceof Error ? err.message : String(err ?? '');
-  if (/timeout|timed out|abort/i.test(message)) return 'Server waking up…';
+  if (/timeout|timed out|abort/i.test(message) || (status && status >= 500)) {
+    return 'Connection lost. Retrying…';
+  }
   if (/failed to fetch|network|offline|load failed/i.test(message)) {
     return 'Connection lost. Retrying…';
   }
   return 'Connection lost. Retrying…';
+}
+
+/** Poll blips must not wipe an answer already on the HUD. */
+export function shouldKeepHudOnPollError(kind: ScreenKind, hasAnswer: boolean): boolean {
+  if (hasAnswer) return true;
+  return kind === 'result' || kind === 'processing';
 }
 
 export function glassesErrorFromJob(job: JobView): string {

@@ -35,6 +35,7 @@ import {
   processingScreen,
   renderScreen,
   resultScreen,
+  shouldKeepHudOnPollError,
   waitingScreen,
 } from './state.js';
 import type { GlassesScreen, JobView } from './types.js';
@@ -73,6 +74,7 @@ let historyJobs: JobView[] = [];
 let historyIndex = 0;
 let pageMode: 'text' | 'list' = 'text';
 let lastLongPressAt = 0;
+let pollBusy = false;
 const tapGuard = createDoubleTapGuard();
 
 const createResult = await bridge.createStartUpPageContainer(
@@ -445,6 +447,16 @@ async function startPolling(): Promise<void> {
 }
 
 async function pollOnce(force: boolean): Promise<void> {
+  if (pollBusy && !force) return;
+  pollBusy = true;
+  try {
+    await pollOnceInner(force);
+  } finally {
+    pollBusy = false;
+  }
+}
+
+async function pollOnceInner(force: boolean): Promise<void> {
   if (config.mockApi) {
     openaiReady = true;
     historyJobs = demoJobs();
@@ -477,13 +489,7 @@ async function pollOnce(force: boolean): Promise<void> {
     }
 
     const latest = await fetchLatest(config.apiBaseUrl, config.deviceSecret);
-    try {
-      const payload = await fetchHistory(config.apiBaseUrl, config.deviceSecret);
-      historyJobs = mergeHistory(historyJobs, payload.results || []);
-      if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
-    } catch {
-      if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
-    }
+    if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
 
     if (pageMode === 'list' && force) {
       await openHistoryList();
@@ -507,7 +513,13 @@ async function pollOnce(force: boolean): Promise<void> {
       }
       return;
     }
-    if (decision.kind === 'same') return;
+    if (decision.kind === 'same') {
+      if (screen.kind === 'error' && currentAnswer) {
+        screen = resultScreen(currentAnswer, screen.pageIndex, compact, activeHudTitle());
+        await redraw();
+      }
+      return;
+    }
     if (decision.kind === 'processing') {
       await remember(displayKey(decision.job));
       if (pageMode === 'list' || historyIndex > 0) return;
@@ -530,8 +542,10 @@ async function pollOnce(force: boolean): Promise<void> {
     applyComplete(decision.job);
     await rebuildTextPage();
   } catch (err) {
+    if (!force && shouldKeepHudOnPollError(screen.kind, Boolean(currentAnswer))) {
+      return;
+    }
     const status = err instanceof ApiError ? err.status : undefined;
-    isDisplayBlank = false;
     screen = errorScreen(classifyFetchError(err, status));
     await rebuildTextPage();
   }

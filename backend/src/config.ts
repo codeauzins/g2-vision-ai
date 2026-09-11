@@ -39,7 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maxUploadBytes: maxMb * 1024 * 1024,
     imageMaxEdge: num('IMAGE_MAX_EDGE', 1600),
     imageJpegQuality: num('IMAGE_JPEG_QUALITY', 80),
-    rateLimitMax: num('RATE_LIMIT_MAX', 30),
+    rateLimitMax: num('RATE_LIMIT_MAX', 120),
     rateLimitWindowMs: num('RATE_LIMIT_WINDOW_MS', 60_000),
     dataDir: (env.G2_DATA_DIR || '').trim(),
   };

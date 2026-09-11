@@ -116,7 +116,7 @@ Action Button: Settings → Action Button → Shortcut → **G2 Vision AI**.
 
 Free web service, Node 22, health `/health`. Blueprint: `render.yaml`. Walkthrough: [docs/render-deployment.md](docs/render-deployment.md).
 
-Cold start: the first request after idle can take tens of seconds. The glasses app shows **Server waking up…** and keeps polling.
+Cold start is not expected on a paid Render instance. The glasses app keeps the last answer if a poll request times out.
 
 ## Environment Variables
 
@@ -171,7 +171,7 @@ Full procedure: [docs/even-private-install.md](docs/even-private-install.md).
 | 401 from `/api/analyze` | Secret mismatch | Same `G2_DEVICE_SECRET` on Render, Shortcut, app |
 | Glasses stay on Checking OpenAI | Key missing or invalid on Render | Set `OPENAI_API_KEY`; watch Render for `openai key failed` |
 | Glasses stay on Ready | URL not in `app.json` whitelist, CORS, or app not rebuilt | Sync whitelist, redeploy, pack |
-| Server waking up… | Render free spin-down | Wait; polling continues |
+| Answer replaced by Server waking up… | Poll timeout overwrote the HUD | Install Ask AI b-07; poll errors no longer replace a shown answer |
 | Same answer never updates | Deduped `jobId` | Take a new photo, or menu → Refresh |
 | Blank HUD | Bridge not awaited | App already awaits `waitForEvenAppBridge()` |
 | Memory empty after deploy | In-memory store | Expected on restart; take another photo |

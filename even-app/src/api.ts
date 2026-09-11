@@ -47,7 +47,7 @@ async function authedGet<T>(
   } catch (err) {
     if (err instanceof ApiError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new ApiError('timeout', 503);
+      throw new ApiError('timeout');
     }
     throw new ApiError(err instanceof Error ? err.message : 'network');
   } finally {

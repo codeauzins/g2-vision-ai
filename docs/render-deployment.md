@@ -118,7 +118,7 @@ or edit `even-app/app.json` `permissions[0].whitelist` to that exact origin (no 
 
 ## Cold start
 
-Free instances sleep after idle. The next request pays a cold start (often 15–60s). The G2 app treats timeouts and 5xx as **Server waking up…** and keeps polling every 1.5s.
+This service is intended to stay up (paid Render). The glasses app keeps the last answer if a poll times out; it does not show a “server waking” screen over a result.
 
 In-memory jobs die on restart. If you photograph during a deploy, take the photo again.
 
