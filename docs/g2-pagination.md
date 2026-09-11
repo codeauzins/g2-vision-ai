@@ -53,11 +53,11 @@ Official `OsEventTypeList` on `event.textEvent` (container `isEventCapture: 1`):
 
 - `SCROLL_BOTTOM_EVENT` — next page
 - `SCROLL_TOP_EVENT` — previous page
-- `CLICK_EVENT` (or `undefined`, SDK quirk) — next page on the latest job; **newer job** while browsing history
+- `CLICK_EVENT` (or `undefined`, SDK quirk) — next page of the current answer
 - `DOUBLE_CLICK_EVENT` — **Quick Blank** (native double press from G2 or R1)
-- `LONG_PRESS_EVENT` on `sysEvent` — **older job** (SDK 0.0.14+). Tap-then-long-press still opens the OS contextual menu.
+- `LONG_PRESS_EVENT` on `sysEvent` — open the **Jobs** list (SDK 0.0.14+). Tap-then-long-press still opens the OS contextual menu.
 
-Older jobs show as `Ask AI 2/5` in the header. Swipe still paginates the answer you are looking at. A new photo jumps back to the latest job.
+Jobs history uses a native `ListContainerProperty` (`rebuildPageContainer`, max 20 rows / 64 characters). Scroll is firmware highlighting; tap uses `listEvent.currentSelectItemIndex`. Double tap or another long press returns to the previous HUD. A new photo jumps back to the latest job.
 
 ### Quick Blank
 
@@ -79,7 +79,7 @@ App-level blank mode:
 
 If Even OS ever consumes double press as system Back and the plugin never receives `DOUBLE_CLICK_EVENT`, Quick Blank will not fire from that gesture. This build still listens for the documented SDK event (same handler Even’s first-app sample uses).
 
-Menu item IDs (SDK `menuObject` / `menuItemClickEvent`, 0.0.14+): Refresh, Previous Page, Next Page, Clear, Short Answer, Older Job, Newer Job, Exit.
+Menu item IDs (SDK `menuObject` / `menuItemClickEvent`, 0.0.14+): Refresh, Previous Page, Next Page, Clear, Short Answer, Jobs, Exit.
 
 ## Tests
 

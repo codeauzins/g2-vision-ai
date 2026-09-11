@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  HISTORY_ITEM_CHARS,
+  HISTORY_LIST_MAX,
   historyTitle,
+  jobListLabel,
+  jobListLabels,
   jobsForHistory,
   mergeHistory,
-  newerHistoryIndex,
-  olderHistoryIndex,
 } from '../src/jobHistory.js';
 import type { JobView } from '../src/types.js';
 
@@ -17,27 +19,44 @@ const job = (patch: Partial<JobView>): JobView => ({
 });
 
 describe('job history', () => {
-  it('keeps newest first and skips processing', () => {
+  it('keeps newest first, skips processing, and caps at 20', () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      job({ jobId: `j${i}`, seq: i + 1, answer: `answer ${i + 1}` }),
+    );
     const list = jobsForHistory([
-      job({ jobId: 'old', seq: 1, answer: 'old' }),
-      job({ jobId: 'new', seq: 3, answer: 'new' }),
-      job({ jobId: 'busy', seq: 2, status: 'processing', answer: undefined }),
+      ...many,
+      job({ jobId: 'busy', seq: 99, status: 'processing', answer: undefined }),
     ]);
-    expect(list.map((j) => j.jobId)).toEqual(['new', 'old']);
+    expect(list).toHaveLength(HISTORY_LIST_MAX);
+    expect(list[0]?.seq).toBe(25);
+    expect(list.some((j) => j.jobId === 'busy')).toBe(false);
   });
 
-  it('long-press steps to an older job; tap steps back to newer', () => {
-    expect(olderHistoryIndex(0, 3)).toBe(1);
-    expect(olderHistoryIndex(1, 3)).toBe(2);
-    expect(olderHistoryIndex(2, 3)).toBe(2);
-    expect(newerHistoryIndex(2)).toBe(1);
-    expect(newerHistoryIndex(1)).toBe(0);
-    expect(newerHistoryIndex(0)).toBe(0);
+  it('builds 64-character menu rows', () => {
+    const label = jobListLabel(
+      job({
+        createdAt: '2026-09-11T12:04:00.000Z',
+        answer: 'Street menu lunch board with a very long line of text that must be cut',
+      }),
+      0,
+    );
+    expect(label.startsWith('1 ')).toBe(true);
+    expect(label).toContain('Street menu');
+    expect(label.length).toBeLessThanOrEqual(HISTORY_ITEM_CHARS);
   });
 
-  it('labels older jobs in the HUD title', () => {
+  it('labels selected jobs in the HUD title', () => {
     expect(historyTitle('Ask AI', 0, 3)).toBe('Ask AI');
     expect(historyTitle('Ask AI', 1, 3)).toBe('Ask AI 2/3');
+  });
+
+  it('maps jobs to list labels in newest-first order', () => {
+    const labels = jobListLabels([
+      job({ jobId: 'new', seq: 2, answer: 'Fresh' }),
+      job({ jobId: 'old', seq: 1, answer: 'Older' }),
+    ]);
+    expect(labels[0]).toContain('Fresh');
+    expect(labels[1]).toContain('Older');
   });
 
   it('merges a new latest job to the front', () => {

@@ -1,8 +1,11 @@
 import {
   CreateStartUpPageContainer,
+  ListContainerProperty,
+  ListItemContainerProperty,
   MenuContainerProperty,
   MenuItemProperty,
   OsEventTypeList,
+  RebuildPageContainer,
   TextContainerProperty,
   TextContainerUpgrade,
   waitForEvenAppBridge,
@@ -11,12 +14,7 @@ import { fetchLatest, fetchHistory, fetchOpenAIStatus, ApiError } from './api.js
 import { loadAppConfig } from './config.js';
 import { demoJobs } from './demo.js';
 import { createDoubleTapGuard } from './doubleTap.js';
-import {
-  historyTitle,
-  mergeHistory,
-  newerHistoryIndex,
-  olderHistoryIndex,
-} from './jobHistory.js';
+import { historyTitle, jobListLabels, mergeHistory } from './jobHistory.js';
 import {
   applyPollWhileBlank,
   hudContentFor,
@@ -43,6 +41,10 @@ import type { GlassesScreen, JobView } from './types.js';
 
 const MAIN_ID = 1;
 const MAIN_NAME = 'main';
+const LIST_ID = 2;
+const LIST_NAME = 'jobs';
+const HEAD_ID = 3;
+const HEAD_NAME = 'jobstitle';
 const LAST_ID_KEY = 'g2vision.lastJobId';
 
 const MENU = {
@@ -51,9 +53,8 @@ const MENU = {
   next: 3,
   clear: 4,
   shortAnswer: 5,
-  olderJob: 6,
-  newerJob: 7,
-  exit: 8,
+  jobs: 6,
+  exit: 7,
 } as const;
 
 const config = loadAppConfig();
@@ -70,40 +71,15 @@ let isDisplayBlank = false;
 let restorePageIndex = 0;
 let historyJobs: JobView[] = [];
 let historyIndex = 0;
+let pageMode: 'text' | 'list' = 'text';
 let lastLongPressAt = 0;
 const tapGuard = createDoubleTapGuard();
-
-const mainText = new TextContainerProperty({
-  xPosition: 0,
-  yPosition: 0,
-  width: 576,
-  height: 288,
-  borderWidth: 0,
-  borderColor: 5,
-  paddingLength: 4,
-  containerID: MAIN_ID,
-  containerName: MAIN_NAME,
-  content: paint(),
-  textColor: 4,
-  isEventCapture: 1,
-});
 
 const createResult = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({
     containerTotalNum: 1,
-    textObject: [mainText],
-    menuObject: new MenuContainerProperty({
-      menuItems: [
-        new MenuItemProperty({ itemName: 'Refresh', itemID: MENU.refresh }),
-        new MenuItemProperty({ itemName: 'Previous Page', itemID: MENU.previous }),
-        new MenuItemProperty({ itemName: 'Next Page', itemID: MENU.next }),
-        new MenuItemProperty({ itemName: 'Clear', itemID: MENU.clear }),
-        new MenuItemProperty({ itemName: 'Short Answer', itemID: MENU.shortAnswer }),
-        new MenuItemProperty({ itemName: 'Older Job', itemID: MENU.olderJob }),
-        new MenuItemProperty({ itemName: 'Newer Job', itemID: MENU.newerJob }),
-        new MenuItemProperty({ itemName: 'Exit', itemID: MENU.exit }),
-      ],
-    }),
+    textObject: [hudText()],
+    menuObject: appMenu(),
   }),
 );
 
@@ -130,12 +106,28 @@ bridge.onEvenHubEvent((event) => {
     return;
   }
   if (sysType === OsEventTypeList.LONG_PRESS_EVENT) {
-    void onOlderJob();
+    void onLongPress();
+    return;
+  }
+
+  const listEvent = event.listEvent;
+  if (pageMode === 'list' && listEvent && listEvent.containerID === LIST_ID) {
+    switch (listEvent.eventType) {
+      case OsEventTypeList.DOUBLE_CLICK_EVENT:
+        void closeHistoryList();
+        break;
+      case OsEventTypeList.CLICK_EVENT:
+      case undefined:
+        void openHistoryJob(listEvent.currentSelectItemIndex ?? 0);
+        break;
+      default:
+        break;
+    }
     return;
   }
 
   const textEvent = event.textEvent;
-  if (textEvent && textEvent.containerID === MAIN_ID) {
+  if (pageMode === 'text' && textEvent && textEvent.containerID === MAIN_ID) {
     switch (textEvent.eventType) {
       case OsEventTypeList.DOUBLE_CLICK_EVENT:
         onDoubleTap();
@@ -163,6 +155,37 @@ if (config.mockApi) {
   void startPolling();
 }
 
+function appMenu(): MenuContainerProperty {
+  return new MenuContainerProperty({
+    menuItems: [
+      new MenuItemProperty({ itemName: 'Refresh', itemID: MENU.refresh }),
+      new MenuItemProperty({ itemName: 'Previous Page', itemID: MENU.previous }),
+      new MenuItemProperty({ itemName: 'Next Page', itemID: MENU.next }),
+      new MenuItemProperty({ itemName: 'Clear', itemID: MENU.clear }),
+      new MenuItemProperty({ itemName: 'Short Answer', itemID: MENU.shortAnswer }),
+      new MenuItemProperty({ itemName: 'Jobs', itemID: MENU.jobs }),
+      new MenuItemProperty({ itemName: 'Exit', itemID: MENU.exit }),
+    ],
+  });
+}
+
+function hudText(): TextContainerProperty {
+  return new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: 576,
+    height: 288,
+    borderWidth: 0,
+    borderColor: 5,
+    paddingLength: 4,
+    containerID: MAIN_ID,
+    containerName: MAIN_NAME,
+    content: paint(),
+    textColor: 4,
+    isEventCapture: 1,
+  });
+}
+
 function paint(): string {
   return hudContentFor(blankSession(), renderScreen(screen.kind, screen.title, screen.body, screen.pageIndex, screen.pages.length));
 }
@@ -186,6 +209,10 @@ function adopt(next: BlankSession): void {
 }
 
 function onDoubleTap(): void {
+  if (pageMode === 'list') {
+    void closeHistoryList();
+    return;
+  }
   const result = tapGuard.onNativeDouble(Date.now());
   if (result.action !== 'toggle') return;
   adopt(toggleBlank(blankSession()));
@@ -208,11 +235,7 @@ function onPossibleClick(): void {
 }
 
 function onSingleTap(): void {
-  if (isDisplayBlank) return;
-  if (historyIndex > 0) {
-    void onNewerJob();
-    return;
-  }
+  if (isDisplayBlank || pageMode === 'list') return;
   if (screen.kind === 'result') {
     turnPage(1);
   } else if (screen.kind === 'error' || screen.kind === 'waiting') {
@@ -242,7 +265,6 @@ function showHistoryJob(index: number): void {
       seq: job.seq,
     };
   }
-  void redraw();
 }
 
 async function refreshHistory(): Promise<void> {
@@ -256,34 +278,106 @@ async function refreshHistory(): Promise<void> {
   if (historyIndex >= historyJobs.length) historyIndex = Math.max(0, historyJobs.length - 1);
 }
 
-async function onOlderJob(): Promise<void> {
+async function onLongPress(): Promise<void> {
   if (isDisplayBlank) return;
   const now = Date.now();
   if (now - lastLongPressAt < 400) return;
   lastLongPressAt = now;
+  if (pageMode === 'list') {
+    await closeHistoryList();
+    return;
+  }
+  await openHistoryList();
+}
+
+async function openHistoryList(): Promise<void> {
   try {
     await refreshHistory();
   } catch {
     // Keep the in-memory list if history fetch fails.
   }
-  if (historyJobs.length === 0) return;
-  if (screen.kind === 'waiting' || screen.kind === 'checking') {
-    showHistoryJob(0);
+  if (historyJobs.length === 0) {
+    if (pageMode !== 'text') await rebuildTextPage();
+    screen = errorScreen('No saved jobs yet.');
+    await redraw();
     return;
   }
-  const next = olderHistoryIndex(historyIndex, historyJobs.length);
-  if (next === historyIndex) return;
-  showHistoryJob(next);
+  const labels = jobListLabels(historyJobs);
+  pageMode = 'list';
+  const ok = await bridge.rebuildPageContainer(
+    new RebuildPageContainer({
+      containerTotalNum: 2,
+      textObject: [
+        new TextContainerProperty({
+          xPosition: 0,
+          yPosition: 0,
+          width: 576,
+          height: 40,
+          borderWidth: 0,
+          borderColor: 5,
+          paddingLength: 4,
+          containerID: HEAD_ID,
+          containerName: HEAD_NAME,
+          content: 'Jobs    tap to open',
+          textColor: 4,
+          isEventCapture: 0,
+        }),
+      ],
+      listObject: [
+        new ListContainerProperty({
+          xPosition: 0,
+          yPosition: 40,
+          width: 576,
+          height: 248,
+          borderWidth: 0,
+          borderColor: 5,
+          paddingLength: 4,
+          containerID: LIST_ID,
+          containerName: LIST_NAME,
+          isEventCapture: 1,
+          itemContainer: new ListItemContainerProperty({
+            itemCount: labels.length,
+            itemName: labels,
+            isItemSelectBorderEn: 1,
+          }),
+        }),
+      ],
+      menuObject: appMenu(),
+    }),
+  );
+  if (!ok) {
+    pageMode = 'text';
+    await rebuildTextPage();
+  }
 }
 
-async function onNewerJob(): Promise<void> {
-  if (isDisplayBlank) return;
-  const next = newerHistoryIndex(historyIndex);
-  if (next === historyIndex) return;
-  showHistoryJob(next);
+async function openHistoryJob(index: number): Promise<void> {
+  if (index < 0 || index >= historyJobs.length) return;
+  showHistoryJob(index);
+  await rebuildTextPage();
+}
+
+async function closeHistoryList(): Promise<void> {
+  if (pageMode === 'text') return;
+  await rebuildTextPage();
+}
+
+async function rebuildTextPage(): Promise<void> {
+  pageMode = 'text';
+  const ok = await bridge.rebuildPageContainer(
+    new RebuildPageContainer({
+      containerTotalNum: 1,
+      textObject: [hudText()],
+      menuObject: appMenu(),
+    }),
+  );
+  if (!ok) {
+    await redraw();
+  }
 }
 
 async function redraw(): Promise<void> {
+  if (pageMode !== 'text') return;
   await bridge.textContainerUpgrade(
     new TextContainerUpgrade({
       containerID: MAIN_ID,
@@ -294,7 +388,7 @@ async function redraw(): Promise<void> {
 }
 
 function turnPage(delta: number): void {
-  if (isDisplayBlank) return;
+  if (isDisplayBlank || pageMode !== 'text') return;
   if (screen.kind !== 'result' || screen.pages.length <= 1) return;
   const index =
     delta > 0
@@ -321,20 +415,17 @@ async function onMenu(itemID: number): Promise<void> {
       isDisplayBlank = false;
       historyIndex = 0;
       screen = openaiReady ? { ...waitingScreen() } : { ...checkingScreen() };
-      await redraw();
+      await rebuildTextPage();
       break;
     case MENU.shortAnswer:
       if (!currentAnswer) return;
       compact = !compact;
       isDisplayBlank = false;
       screen = resultScreen(currentAnswer, 0, compact, activeHudTitle());
-      await redraw();
+      await rebuildTextPage();
       break;
-    case MENU.olderJob:
-      await onOlderJob();
-      break;
-    case MENU.newerJob:
-      await onNewerJob();
+    case MENU.jobs:
+      await openHistoryList();
       break;
     case MENU.exit:
       void bridge.shutDownPageContainer(1);
@@ -368,7 +459,7 @@ async function pollOnce(force: boolean): Promise<void> {
         ? 'Backend URL is not set. Rebuild with VITE_API_BASE_URL.'
         : 'App authentication failed.',
     );
-    await redraw();
+    await rebuildTextPage();
     return;
   }
 
@@ -379,7 +470,7 @@ async function pollOnce(force: boolean): Promise<void> {
         openaiReady = false;
         isDisplayBlank = false;
         screen = errorScreen(glassesErrorFromOpenAICheck(status));
-        await redraw();
+        await rebuildTextPage();
         return;
       }
       openaiReady = true;
@@ -394,16 +485,22 @@ async function pollOnce(force: boolean): Promise<void> {
       if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
     }
 
+    if (pageMode === 'list' && force) {
+      await openHistoryList();
+      return;
+    }
+
     const decision = decidePoll(force ? undefined : lastSeenKey, latest.result);
     if (isDisplayBlank) {
       const applied = applyPollWhileBlank(blankSession(), decision);
       adopt(applied.session);
       if (applied.rememberKey) await remember(applied.rememberKey);
       if (applied.paint === 'none') return;
-      await redraw();
+      await rebuildTextPage();
       return;
     }
     if (decision.kind === 'empty') {
+      if (pageMode === 'list') return;
       if (screen.kind !== 'waiting' && screen.kind !== 'result') {
         screen = { ...waitingScreen() };
         await redraw();
@@ -412,13 +509,10 @@ async function pollOnce(force: boolean): Promise<void> {
     }
     if (decision.kind === 'same') return;
     if (decision.kind === 'processing') {
-      if (historyIndex > 0) {
-        await remember(displayKey(decision.job));
-        return;
-      }
+      await remember(displayKey(decision.job));
+      if (pageMode === 'list' || historyIndex > 0) return;
       pollTick += 1;
       screen = { ...processingScreen(pollTick), jobId: decision.job.jobId, seq: decision.job.seq };
-      await remember(displayKey(decision.job));
       await redraw();
       return;
     }
@@ -430,16 +524,16 @@ async function pollOnce(force: boolean): Promise<void> {
         seq: decision.job.seq,
       };
       await remember(displayKey(decision.job));
-      await redraw();
+      await rebuildTextPage();
       return;
     }
     applyComplete(decision.job);
-    await redraw();
+    await rebuildTextPage();
   } catch (err) {
     const status = err instanceof ApiError ? err.status : undefined;
     isDisplayBlank = false;
     screen = errorScreen(classifyFetchError(err, status));
-    await redraw();
+    await rebuildTextPage();
   }
 }
 
