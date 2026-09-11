@@ -37,7 +37,7 @@ Split:
 Each HUD frame is:
 
 ```text
-Ask AI                          1/4
+A-AI                            1/4
 
 <body of this page>
 ```

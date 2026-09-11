@@ -54,8 +54,9 @@ describe('pagination', () => {
 
   it('formats a page indicator', () => {
     expect(pageIndicator(0, 4)).toBe('1/4');
-    const hud = formatHudPage('Ask AI', 'Ready', 0, 1);
-    expect(hud).toContain('Ask AI');
+    const hud = formatHudPage(TITLE, 'Ready', 0, 1);
+    expect(hud.startsWith('A-AI')).toBe(true);
+    expect(hud).toContain('A-AI');
     expect(hud).toContain('1/1');
     expect(hud).toContain('Ready');
     expect(countWrappedLines(hud)).toBeLessThanOrEqual(DISPLAY_LINES);
