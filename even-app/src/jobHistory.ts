@@ -25,22 +25,35 @@ export function historyTitle(base: string, index: number, total: number): string
 }
 
 export function jobListLabels(jobs: JobView[]): string[] {
-  return jobs.slice(0, HISTORY_LIST_MAX).map((job, index) => jobListLabel(job, index));
+  return jobs.slice(0, HISTORY_LIST_MAX).map((job) => jobListLabel(job));
 }
 
-export function jobListLabel(job: JobView, index: number): string {
-  const prefix = `${index + 1} `;
-  const time = shortTime(job.createdAt);
-  const snippet = (job.answer || job.error || 'Failed').replace(/\s+/g, ' ').trim();
-  return `${prefix}${time}${snippet}`.slice(0, HISTORY_ITEM_CHARS);
+/** One row: HH:MM then 1–2 words so it fits the G2 list line. */
+export function jobListLabel(job: JobView, _index = 0): string {
+  const time = clockTime(job.createdAt);
+  const words = jobListWords(job.answer || job.error || (job.status === 'error' ? 'Failed' : 'Job'));
+  const line = time ? `${time}  ${words}` : words;
+  return line.slice(0, HISTORY_ITEM_CHARS);
 }
 
-function shortTime(iso?: string): string {
+export function jobListWords(text: string): string {
+  const tokens = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((token) => token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ''))
+    .filter((token) => token.length > 0);
+  const picked = tokens.slice(0, 2);
+  if (!picked.length) return 'Job';
+  return picked.join(' ').slice(0, 28);
+}
+
+function clockTime(iso?: string): string {
   if (!iso) return '';
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return '';
   const d = new Date(ms);
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm} `;
+  return `${hh}:${mm}`;
 }

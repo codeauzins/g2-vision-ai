@@ -5,6 +5,7 @@ import {
   historyTitle,
   jobListLabel,
   jobListLabels,
+  jobListWords,
   jobsForHistory,
   mergeHistory,
 } from '../src/jobHistory.js';
@@ -32,7 +33,7 @@ describe('job history', () => {
     expect(list.some((j) => j.jobId === 'busy')).toBe(false);
   });
 
-  it('builds 64-character menu rows', () => {
+  it('builds a one-line HH:MM plus 1-2 word row', () => {
     const label = jobListLabel(
       job({
         createdAt: '2026-09-11T12:04:00.000Z',
@@ -40,9 +41,11 @@ describe('job history', () => {
       }),
       0,
     );
-    expect(label.startsWith('1 ')).toBe(true);
-    expect(label).toContain('Street menu');
+    expect(label).toMatch(/^\d{2}:\d{2}\s{2}Street menu$/);
+    expect(label).not.toContain('lunch');
     expect(label.length).toBeLessThanOrEqual(HISTORY_ITEM_CHARS);
+    expect(jobListWords('Street menu, lunch board.')).toBe('Street menu');
+    expect(jobListWords('Failed')).toBe('Failed');
   });
 
   it('labels selected jobs in the HUD title', () => {

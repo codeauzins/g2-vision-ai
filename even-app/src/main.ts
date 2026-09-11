@@ -106,22 +106,18 @@ bridge.onEvenHubEvent((event) => {
     return;
   }
 
-  const sysType = event.sysEvent?.eventType;
-  if (sysType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-    onDoubleTap();
+  if (eventHasType(event, OsEventTypeList.LONG_PRESS_EVENT)) {
+    void onLongPress();
     return;
   }
-  if (sysType === OsEventTypeList.LONG_PRESS_EVENT) {
-    void onLongPress();
+  if (eventHasType(event, OsEventTypeList.DOUBLE_CLICK_EVENT)) {
+    onDoubleTap();
     return;
   }
 
   const listEvent = event.listEvent;
   if (pageMode === 'list' && listEvent && listEvent.containerID === LIST_ID) {
     switch (listEvent.eventType) {
-      case OsEventTypeList.DOUBLE_CLICK_EVENT:
-        void closeHistoryList();
-        break;
       case OsEventTypeList.CLICK_EVENT:
       case undefined:
         void openHistoryJob(listEvent.currentSelectItemIndex ?? 0);
@@ -135,9 +131,6 @@ bridge.onEvenHubEvent((event) => {
   const textEvent = event.textEvent;
   if (pageMode === 'text' && textEvent && textEvent.containerID === MAIN_ID) {
     switch (textEvent.eventType) {
-      case OsEventTypeList.DOUBLE_CLICK_EVENT:
-        onDoubleTap();
-        break;
       case OsEventTypeList.CLICK_EVENT:
       case undefined:
         onPossibleClick();
@@ -214,6 +207,26 @@ function adopt(next: BlankSession): void {
   restorePageIndex = next.restorePageIndex;
 }
 
+function eventHasType(
+  event: {
+    sysEvent?: { eventType?: number };
+    textEvent?: { eventType?: number };
+    listEvent?: { eventType?: number };
+  },
+  type: number,
+): boolean {
+  return (
+    event.sysEvent?.eventType === type ||
+    event.textEvent?.eventType === type ||
+    event.listEvent?.eventType === type
+  );
+}
+
+function logPress(message: string, kind: string): void {
+  if (config.mockApi || !config.apiBaseUrl || !config.deviceSecret) return;
+  void postHudLog(config.apiBaseUrl, config.deviceSecret, message, kind);
+}
+
 function onDoubleTap(): void {
   if (pageMode === 'list') {
     void closeHistoryList();
@@ -242,6 +255,7 @@ function onPossibleClick(): void {
 
 function onSingleTap(): void {
   if (isDisplayBlank || pageMode === 'list') return;
+  logPress('Short press', 'short');
   if (screen.kind === 'result') {
     turnPage(1);
   } else if (screen.kind === 'error' || screen.kind === 'waiting') {
@@ -285,13 +299,12 @@ async function refreshHistory(): Promise<void> {
 }
 
 async function onLongPress(): Promise<void> {
-  if (isDisplayBlank) return;
   const now = Date.now();
   if (now - lastLongPressAt < 400) return;
   lastLongPressAt = now;
-  if (pageMode === 'list') {
-    await closeHistoryList();
-    return;
+  logPress('Long press', 'long');
+  if (isDisplayBlank) {
+    isDisplayBlank = false;
   }
   await openHistoryList();
 }
@@ -324,7 +337,7 @@ async function openHistoryList(): Promise<void> {
           paddingLength: 4,
           containerID: HEAD_ID,
           containerName: HEAD_NAME,
-          content: 'Jobs    tap to open',
+          content: 'Jobs   tap to open',
           textColor: 4,
           isEventCapture: 0,
         }),
@@ -359,6 +372,7 @@ async function openHistoryList(): Promise<void> {
 
 async function openHistoryJob(index: number): Promise<void> {
   if (index < 0 || index >= historyJobs.length) return;
+  logPress('Short press', 'short');
   showHistoryJob(index);
   await rebuildTextPage();
 }

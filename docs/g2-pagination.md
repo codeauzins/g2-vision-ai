@@ -52,9 +52,9 @@ Official `OsEventTypeList` on `event.textEvent` (container `isEventCapture: 1`):
 - `SCROLL_TOP_EVENT` — previous page
 - `CLICK_EVENT` (or `undefined`, SDK quirk) — next page of the current answer
 - `DOUBLE_CLICK_EVENT` — **Quick Blank** (native double press from G2 or R1)
-- `LONG_PRESS_EVENT` on `sysEvent` — open the **Jobs** list (SDK 0.0.14+). Tap-then-long-press still opens the OS contextual menu.
+- `LONG_PRESS_EVENT` on `sysEvent`, `textEvent`, or `listEvent` — open/return to the **Jobs** list (SDK 0.0.14+). Tap-then-long-press still opens the OS contextual menu.
 
-Jobs history uses a native `ListContainerProperty` (`rebuildPageContainer`, max 20 rows / 64 characters). Scroll is firmware highlighting; tap uses `listEvent.currentSelectItemIndex`. Double tap or another long press returns to the previous HUD. A new photo jumps back to the latest job.
+Jobs history uses a native `ListContainerProperty` (`rebuildPageContainer`, max 20 rows / 64 characters). Each row is `HH:MM` plus 1–2 words. Scroll is firmware highlighting; tap uses `listEvent.currentSelectItemIndex`. Long press from an answer returns to Jobs. Double tap closes the list. A new photo jumps back to the latest job.
 
 ### Quick Blank
 

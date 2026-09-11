@@ -99,7 +99,7 @@ Gestures (official `OsEventTypeList`; R1 ring and G2 temples share the same even
 - Swipe up → previous page
 - Tap → next page (on a result) or retry (after the double-tap window)
 - **Quick Blank:** R1 / temple **double tap** → blank the HUD; double tap again → restore. A new Ask AI result wakes the HUD on page 1. Polling does not stop.
-- **Job history:** R1 **long press** opens a native Jobs list (scroll up/down, **tap** to open that answer). Long press or double tap leaves the list. Contextual menu → **Jobs**.
+- **Job history:** R1 **long press** opens the Jobs list (scroll, **tap** a row). Long press from an answer returns to Jobs. Double tap leaves the list. Contextual menu → **Jobs**.
 - Tap then long-press → contextual menu: Refresh, Previous Page, Next Page, Clear, Short Answer, **Exit** (`shutDownPageContainer(1)`)
 
 There is **no** SDK display-off API. Quick Blank is an empty text container (black pixels are off). See [docs/g2-pagination.md](docs/g2-pagination.md#quick-blank).
