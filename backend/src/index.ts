@@ -5,6 +5,7 @@ import { buildApp } from './app.js';
 import { createOpenAIClient } from './openai.js';
 import { FilePromptStore, MemoryPromptStore } from './settings.js';
 import { FileResultStore, MemoryResultStore } from './storage.js';
+import { FileActivityLog, MemoryActivityLog } from './activityLog.js';
 import { APP_VERSION } from './version.js';
 
 function loadLocalEnv(): void {
@@ -28,26 +29,36 @@ if (!config.openaiApiKey) {
 
 function openStore(dataDir: string) {
   if (!dataDir) {
-    return { store: new MemoryResultStore(), prompts: new MemoryPromptStore() };
+    return {
+      store: new MemoryResultStore(),
+      prompts: new MemoryPromptStore(),
+      activity: new MemoryActivityLog(),
+    };
   }
   try {
     mkdirSync(dataDir, { recursive: true });
     return {
       store: new FileResultStore(join(dataDir, 'jobs.json')),
       prompts: new FilePromptStore(join(dataDir, 'settings.json')),
+      activity: new FileActivityLog(join(dataDir, 'activity.json')),
     };
   } catch (err) {
     console.warn('G2_DATA_DIR is not writable; using in-memory results', err);
-    return { store: new MemoryResultStore(), prompts: new MemoryPromptStore() };
+    return {
+      store: new MemoryResultStore(),
+      prompts: new MemoryPromptStore(),
+      activity: new MemoryActivityLog(),
+    };
   }
 }
 
-const { store, prompts } = openStore(config.dataDir);
+const { store, prompts, activity } = openStore(config.dataDir);
 
 const app = await buildApp({
   config,
   store,
   prompts,
+  activity,
   vision: createOpenAIClient(config.openaiApiKey, config.openaiBaseUrl, config.openaiModel),
 });
 

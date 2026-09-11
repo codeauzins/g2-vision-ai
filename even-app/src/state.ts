@@ -22,6 +22,11 @@ export function shouldKeepHudOnPollError(kind: ScreenKind, hasAnswer: boolean): 
   return kind === 'result' || kind === 'processing';
 }
 
+/** A stored job must not leave the launch HUD on Checking OpenAI key… */
+export function shouldApplySameJob(kind: ScreenKind): boolean {
+  return kind === 'checking';
+}
+
 export function glassesErrorFromJob(job: JobView): string {
   if (job.errorCode === 'openai_timeout') return 'AI timed out. Try another photo.';
   if (job.errorCode === 'openai_auth') return 'OpenAI key rejected. Check Render OPENAI_API_KEY.';
@@ -35,11 +40,19 @@ export function displayKey(job: JobView): string {
 
 export function decidePoll(lastKey: string | undefined, job: JobView | null): PollOutcome {
   if (!job) return { kind: 'empty' };
-  if (displayKey(job) === lastKey) return { kind: 'same' };
+  if (displayKey(job) === lastKey) return { kind: 'same', job };
   if (job.status === 'processing') return { kind: 'processing', job };
   if (job.status === 'error') return { kind: 'error', job };
   if (job.status === 'complete' && job.answer) return { kind: 'complete', job };
   return { kind: 'error', job: { ...job, error: 'Malformed result' } };
+}
+
+/** First HUD line for admin Logs (no page-turn spam). */
+export function hudLogMessage(kind: ScreenKind, body: string): string {
+  if (kind === 'result') return 'Answer shown';
+  if (kind === 'processing') return 'Analyzing…';
+  const first = body.split('\n')[0]?.trim();
+  return first || kind;
 }
 
 export function glassesErrorFromOpenAICheck(check: {

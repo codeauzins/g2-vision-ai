@@ -8,6 +8,8 @@ import {
   prevIndex,
   processingScreen,
   shouldKeepHudOnPollError,
+  shouldApplySameJob,
+  hudLogMessage,
   waitingScreen,
 } from '../src/state.js';
 import type { JobView } from '../src/types.js';
@@ -77,5 +79,9 @@ describe('result state', () => {
     expect(classifyFetchError(new Error('Failed to fetch'))).toBe('Connection lost. Retrying…');
     expect(shouldKeepHudOnPollError('result', true)).toBe(true);
     expect(shouldKeepHudOnPollError('waiting', false)).toBe(false);
+    expect(shouldApplySameJob('checking')).toBe(true);
+    expect(shouldApplySameJob('result')).toBe(false);
+    expect(hudLogMessage('checking', 'Checking OpenAI key…\n')).toContain('Checking OpenAI');
+    expect(hudLogMessage('result', 'long answer')).toBe('Answer shown');
   });
 });

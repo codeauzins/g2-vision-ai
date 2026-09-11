@@ -10,7 +10,7 @@ import {
   TextContainerUpgrade,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
-import { fetchLatest, fetchHistory, fetchOpenAIStatus, ApiError } from './api.js';
+import { fetchLatest, fetchHistory, fetchOpenAIStatus, postHudLog, ApiError } from './api.js';
 import { loadAppConfig } from './config.js';
 import { demoJobs } from './demo.js';
 import { createDoubleTapGuard } from './doubleTap.js';
@@ -35,8 +35,10 @@ import {
   processingScreen,
   renderScreen,
   resultScreen,
+  shouldApplySameJob,
   shouldKeepHudOnPollError,
   waitingScreen,
+  hudLogMessage,
 } from './state.js';
 import type { GlassesScreen, JobView } from './types.js';
 
@@ -75,6 +77,7 @@ let historyIndex = 0;
 let pageMode: 'text' | 'list' = 'text';
 let lastLongPressAt = 0;
 let pollBusy = false;
+let lastHudLog = '';
 const tapGuard = createDoubleTapGuard();
 
 const createResult = await bridge.createStartUpPageContainer(
@@ -88,6 +91,7 @@ const createResult = await bridge.createStartUpPageContainer(
 if (createResult !== 0) {
   console.error('createStartUpPageContainer failed', createResult);
 }
+reportHud();
 
 try {
   lastSeenKey = (await bridge.getLocalStorage(LAST_ID_KEY)) || undefined;
@@ -376,6 +380,7 @@ async function rebuildTextPage(): Promise<void> {
   if (!ok) {
     await redraw();
   }
+  reportHud();
 }
 
 async function redraw(): Promise<void> {
@@ -387,6 +392,15 @@ async function redraw(): Promise<void> {
       content: paint(),
     }),
   );
+  reportHud();
+}
+
+function reportHud(): void {
+  if (config.mockApi || !config.apiBaseUrl || !config.deviceSecret) return;
+  const message = hudLogMessage(screen.kind, screen.body);
+  if (message === lastHudLog) return;
+  lastHudLog = message;
+  void postHudLog(config.apiBaseUrl, config.deviceSecret, message, screen.kind);
 }
 
 function turnPage(delta: number): void {
@@ -476,20 +490,24 @@ async function pollOnceInner(force: boolean): Promise<void> {
   }
 
   try {
-    if (!openaiReady || force) {
-      const status = await fetchOpenAIStatus(config.apiBaseUrl, config.deviceSecret);
-      if (!status.ok) {
-        openaiReady = false;
-        isDisplayBlank = false;
-        screen = errorScreen(glassesErrorFromOpenAICheck(status));
-        await rebuildTextPage();
-        return;
-      }
-      openaiReady = true;
-    }
-
     const latest = await fetchLatest(config.apiBaseUrl, config.deviceSecret);
     if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
+
+    if (!openaiReady || force) {
+      try {
+        const status = await fetchOpenAIStatus(config.apiBaseUrl, config.deviceSecret);
+        if (!status.ok) {
+          openaiReady = false;
+          isDisplayBlank = false;
+          screen = errorScreen(glassesErrorFromOpenAICheck(status));
+          await rebuildTextPage();
+          return;
+        }
+        openaiReady = true;
+      } catch {
+        openaiReady = true;
+      }
+    }
 
     if (pageMode === 'list' && force) {
       await openHistoryList();
@@ -514,6 +532,32 @@ async function pollOnceInner(force: boolean): Promise<void> {
       return;
     }
     if (decision.kind === 'same') {
+      if (shouldApplySameJob(screen.kind)) {
+        const fresh = decidePoll(undefined, decision.job);
+        if (fresh.kind === 'complete') {
+          applyComplete(fresh.job);
+          await rebuildTextPage();
+          return;
+        }
+        if (fresh.kind === 'processing') {
+          pollTick += 1;
+          screen = { ...processingScreen(pollTick), jobId: fresh.job.jobId, seq: fresh.job.seq };
+          await redraw();
+          return;
+        }
+        if (fresh.kind === 'error') {
+          screen = {
+            ...errorScreen(glassesErrorFromJob(fresh.job)),
+            jobId: fresh.job.jobId,
+            seq: fresh.job.seq,
+          };
+          await rebuildTextPage();
+          return;
+        }
+        screen = { ...waitingScreen() };
+        await redraw();
+        return;
+      }
       if (screen.kind === 'error' && currentAnswer) {
         screen = resultScreen(currentAnswer, screen.pageIndex, compact, activeHudTitle());
         await redraw();

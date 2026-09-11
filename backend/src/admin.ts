@@ -6,6 +6,7 @@ import { httpError } from './errors.js';
 import { APP_VERSION } from './version.js';
 import type { PromptSettings, PromptStore } from './settings.js';
 import type { JobRecord, ResultStore } from './storage.js';
+import type { ActivityEntry, ActivityLog } from './activityLog.js';
 
 const COOKIE = 'g2_admin';
 const SESSION_TTL_SEC = 60 * 60 * 24 * 14;
@@ -56,10 +57,11 @@ export function registerAdminRoutes(
     config: AppConfig;
     store: ResultStore;
     prompts: PromptStore;
+    activity: ActivityLog;
     now?: () => number;
   },
 ): void {
-  const { config, store, prompts } = deps;
+  const { config, store, prompts, activity } = deps;
   const now = deps.now ?? Date.now;
 
   function loggedIn(request: FastifyRequest): boolean {
@@ -81,7 +83,14 @@ export function registerAdminRoutes(
     await store.purgeExpired(now());
     const settings = await prompts.get();
     const jobs = await store.list(80);
-    return reply.type('text/html; charset=utf-8').send(dashboardPage({ config, settings, jobs }));
+    const logs = await activity.list(150);
+    return reply.type('text/html; charset=utf-8').send(dashboardPage({ config, settings, jobs, logs }));
+  });
+
+  app.get('/admin/logs', async (request, reply) => {
+    requireAdmin(request);
+    const logs = await activity.list(150);
+    return reply.type('text/html; charset=utf-8').send(logsHtml(logs));
   });
 
   app.get('/admin/login', async (_request, reply) => {
@@ -167,7 +176,10 @@ function shell(title: string, body: string): string {
     .job { display: grid; grid-template-columns: 160px 1fr; gap: 12px; }
     .job img { width: 160px; height: auto; border-radius: 8px; background: #000; }
     pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
-    @media (max-width: 640px) { .job { grid-template-columns: 1fr; } }
+    .log-row { display: grid; grid-template-columns: 170px 72px 1fr; gap: 8px; font: 12px/1.4 ui-monospace, Menlo, monospace; padding: 7px 0; border-bottom: 1px solid #2a3324; }
+    .log-src { color: #9cff57; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+    #log-list { max-height: 360px; overflow: auto; }
+    @media (max-width: 640px) { .job { grid-template-columns: 1fr; } .log-row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body><main>${body}</main></body>
@@ -190,10 +202,23 @@ function loginPage(error: string): string {
   );
 }
 
+function logsHtml(logs: ActivityEntry[]): string {
+  if (!logs.length) {
+    return `<p class="muted">No events yet. Open the glasses app or take a photo.</p>`;
+  }
+  return logs
+    .map((entry) => {
+      const extra = entry.detail ? ` <span class="muted">${esc(entry.detail)}</span>` : '';
+      return `<div class="log-row"><span class="muted">${esc(entry.at.replace('T', ' ').replace('Z', ' UTC'))}</span><span class="log-src">${esc(entry.source)}</span><span>${esc(entry.message)}${extra}</span></div>`;
+    })
+    .join('');
+}
+
 function dashboardPage(input: {
   config: AppConfig;
   settings: PromptSettings;
   jobs: JobRecord[];
+  logs: ActivityEntry[];
 }): string {
   const { config, settings, jobs } = input;
   const jobsHtml = jobs.length
@@ -222,6 +247,22 @@ function dashboardPage(input: {
        <form method="post" action="/admin/logout"><button class="secondary" type="submit">Log out</button></form>
      </div>
      <p class="muted">${esc(APP_VERSION)} · model ${esc(config.openaiModel)} · OpenAI key ${config.openaiApiKey ? 'set' : 'MISSING'} · disk ${esc(config.dataDir || '(memory only)')}</p>
+
+     <section class="card">
+       <h2>Logs</h2>
+       <p class="muted">Glasses HUD lines and server events, newest first. This list refreshes every 4 seconds.</p>
+       <div id="log-list">${logsHtml(input.logs)}</div>
+     </section>
+     <script>
+       setInterval(function () {
+         fetch('/admin/logs', { credentials: 'same-origin' }).then(function (res) {
+           if (!res.ok) return;
+           return res.text();
+         }).then(function (html) {
+           if (html) document.getElementById('log-list').innerHTML = html;
+         }).catch(function () {});
+       }, 4000);
+     </script>
 
      <section class="card">
        <h2>OpenAI prompt</h2>

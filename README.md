@@ -71,9 +71,11 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 | GET | `/api/result/:jobId` | Bearer | Job status / answer |
 | GET | `/api/latest` | Bearer | Newest job (or `{ result: null }`) |
 | GET | `/api/history` | Bearer | Last 20 complete/error jobs for the glasses |
-| GET | `/admin` | cookie | Password page: settings, prompt editor, photo history |
+| GET | `/admin` | cookie | Password page: Logs, prompt editor, photo history |
+| GET | `/admin/logs` | cookie | HTML fragment of recent HUD/server events |
+| POST | `/api/hud` | Bearer | Glasses HUD line for admin Logs |
 
-Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. Edit the OpenAI system prompt there; the next Action Button photo uses it. Previous photos and answers are listed on the same page.
+Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. The **Logs** section lists glasses HUD lines (Checking OpenAI key…, Ready, Analyzing…) and server events with timestamps. Edit the OpenAI system prompt on the same page; the next Action Button photo uses it. Previous photos and answers are listed below.
 
 `POST /api/analyze` accepts:
 
@@ -89,7 +91,7 @@ Images are resized so the longest edge is 1600px and re-encoded as JPEG quality 
 
 Package: `even-app`, SDK `@evenrealities/even_hub_sdk` (0.0.15).
 
-UI states: **Checking OpenAI key…**, **Ready** (only after the key test succeeds), **Analyzing…**, **result pages**, **short glasses errors**.
+UI states: **Checking OpenAI key…**, **Ready** (after the backend answers `/api/latest`; a failed key test still shows an error), **Analyzing…**, **result pages**, **short glasses errors**.
 
 Gestures (official `OsEventTypeList`; R1 ring and G2 temples share the same event types):
 
@@ -169,7 +171,7 @@ Full procedure: [docs/even-private-install.md](docs/even-private-install.md).
 | --- | --- | --- |
 | Shortcut fails immediately | HEIC body | Convert Image to JPEG in the Shortcut |
 | 401 from `/api/analyze` | Secret mismatch | Same `G2_DEVICE_SECRET` on Render, Shortcut, app |
-| Glasses stay on Checking OpenAI | Key missing or invalid on Render | Set `OPENAI_API_KEY`; watch Render for `openai key failed` |
+| Glasses stay on Checking OpenAI | Install Ask AI b-09; a stored job no longer skips painting Ready |
 | Glasses stay on Ready | URL not in `app.json` whitelist, CORS, or app not rebuilt | Sync whitelist, redeploy, pack |
 | Answer replaced by Server waking up… | Poll timeout overwrote the HUD | Install Ask AI b-07; poll errors no longer replace a shown answer |
 | Same answer never updates | Deduped `jobId` | Take a new photo, or menu → Refresh |

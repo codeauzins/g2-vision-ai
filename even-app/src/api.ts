@@ -79,3 +79,30 @@ export async function fetchOpenAIStatus(
 ): Promise<OpenAIStatusResponse> {
   return authedGet<OpenAIStatusResponse>(apiBaseUrl, deviceSecret, '/api/openai', signal);
 }
+
+export async function postHudLog(
+  apiBaseUrl: string,
+  deviceSecret: string,
+  message: string,
+  kind?: string,
+): Promise<void> {
+  if (!apiBaseUrl || !deviceSecret || !message.trim()) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    await fetch(`${apiBaseUrl}/api/hud`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${deviceSecret}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message, kind }),
+      signal: controller.signal,
+    });
+  } catch {
+    // Admin logs are best-effort; polling must not stall.
+  } finally {
+    clearTimeout(timer);
+  }
+}

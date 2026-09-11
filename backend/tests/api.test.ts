@@ -126,6 +126,33 @@ describe('g2-vision-ai backend', () => {
     await app.close();
   });
 
+  it('records glasses HUD lines in admin Logs', async () => {
+    const { app } = await makeApp();
+    const denied = await app.inject({ method: 'POST', url: '/api/hud', payload: { message: 'Checking OpenAI key…' } });
+    expect(denied.statusCode).toBe(401);
+    const posted = await app.inject({
+      method: 'POST',
+      url: '/api/hud',
+      headers: { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' },
+      payload: { message: 'Checking OpenAI key…', kind: 'checking' },
+    });
+    expect(posted.statusCode).toBe(200);
+    const login = await app.inject({
+      method: 'POST',
+      url: '/admin/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `password=${SECRET}`,
+    });
+    const cookie = String(login.headers['set-cookie'] || '').split(';')[0];
+    const dash = await app.inject({ method: 'GET', url: '/admin', headers: { cookie } });
+    expect(dash.body).toContain('Logs');
+    expect(dash.body).toContain('Checking OpenAI key');
+    expect(dash.body).toContain('glasses');
+    const fragment = await app.inject({ method: 'GET', url: '/admin/logs', headers: { cookie } });
+    expect(fragment.body).toContain('Checking OpenAI key');
+    await app.close();
+  });
+
   it('health is public', async () => {
     const { app } = await makeApp();
     const res = await app.inject({ method: 'GET', url: '/health' });
@@ -358,6 +385,7 @@ describe('g2-vision-ai backend', () => {
       headers: { cookie: cookie.split(';')[0] },
     });
     expect(dash.body).toContain('OpenAI prompt');
+    expect(dash.body).toContain('Logs');
     expect(dash.body).toContain(jobId);
     expect(dash.body).toContain('green square');
 

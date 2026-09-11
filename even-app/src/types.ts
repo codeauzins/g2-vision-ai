@@ -48,7 +48,7 @@ export type GlassesScreen = {
 
 export type PollOutcome =
   | { kind: 'empty' }
-  | { kind: 'same' }
+  | { kind: 'same'; job: JobView }
   | { kind: 'processing'; job: JobView }
   | { kind: 'complete'; job: JobView }
   | { kind: 'error'; job: JobView };

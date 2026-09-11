@@ -11,6 +11,7 @@ import { buildInstructions, parseMode, userPrompt } from './modes.js';
 import type { OpenAIKeyCheck, VisionClient } from './openai.js';
 import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
 import { MemoryPromptStore, type PromptStore } from './settings.js';
+import { MemoryActivityLog, type ActivityLog } from './activityLog.js';
 import { registerAdminRoutes } from './admin.js';
 import { APP_VERSION } from './version.js';
 import { publicError } from './log.js';
@@ -19,6 +20,7 @@ export type AppDeps = {
   config: AppConfig;
   store?: ResultStore;
   prompts?: PromptStore;
+  activity?: ActivityLog;
   vision: VisionClient;
   now?: () => number;
 };
@@ -33,10 +35,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, vision } = deps;
   const store = deps.store ?? new MemoryResultStore();
   const prompts = deps.prompts ?? new MemoryPromptStore();
+  const activity = deps.activity ?? new MemoryActivityLog(deps.now ?? Date.now);
   const now = deps.now ?? Date.now;
   let seq = 0;
   const KEY_CHECK_TTL_MS = 30_000;
+  const KEY_CHECK_WAIT_MS = 5_000;
   let keyCheckCache: { at: number; result: OpenAIKeyCheck } | undefined;
+
+  function note(source: 'server' | 'glasses', message: string, detail?: string): void {
+    void activity.add({ source, message, detail });
+  }
 
   const app = Fastify({
     disableRequestLogging: true,
@@ -68,7 +76,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     timeWindow: config.rateLimitWindowMs,
     allowList: (req) => {
       const path = (req.url || '').split('?')[0];
-      return path === '/health' || path === '/api/latest' || path === '/api/history' || path === '/api/openai';
+      return (
+        path === '/health' ||
+        path === '/api/latest' ||
+        path === '/api/history' ||
+        path === '/api/openai' ||
+        path === '/api/hud'
+      );
     },
   });
 
@@ -187,8 +201,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (keyCheckCache && now() - keyCheckCache.at < KEY_CHECK_TTL_MS) {
       return { cached: true, ...keyCheckCache.result };
     }
+    note('server', 'Checking OpenAI key…');
     const started = now();
-    const result = await vision.checkApiKey();
+    const result = await runKeyCheck();
     keyCheckCache = { at: now(), result };
     request.log.info(
       {
@@ -201,7 +216,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       },
       result.ok ? 'openai key ok' : 'openai key failed',
     );
+    note(
+      'server',
+      result.ok ? 'OpenAI key ok' : 'OpenAI key check failed',
+      result.error || result.code,
+    );
     return { cached: false, ...result };
+  });
+
+  app.post('/api/hud', async (request, reply) => {
+    requireAuth(request);
+    const body = (request.body ?? {}) as { message?: unknown; kind?: unknown };
+    const message = typeof body.message === 'string' ? body.message : '';
+    if (!message.trim()) {
+      throw httpError(400, 'bad_request', 'Missing HUD message.');
+    }
+    const kind = typeof body.kind === 'string' ? body.kind : undefined;
+    await activity.add({
+      source: 'glasses',
+      message,
+      detail: kind,
+    });
+    return reply.send({ ok: true });
   });
 
   app.post('/api/analyze', async (request, reply) => {
@@ -313,6 +349,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       },
       'upload received',
     );
+    note('server', 'Photo received', `job ${jobId.slice(0, 8)} · ${mode}`);
 
     void processJob({
       jobId,
@@ -323,6 +360,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       store,
       prompts,
       log: request.log,
+      note,
     }).finally(() => {
       optimized.buffer.fill(0);
     });
@@ -366,7 +404,32 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return { ok: true, results: jobs.map(toJobView) };
   });
 
-  registerAdminRoutes(app, { config, store, prompts, now });
+  registerAdminRoutes(app, { config, store, prompts, activity, now });
+
+  async function runKeyCheck(): Promise<OpenAIKeyCheck> {
+    if (!config.openaiApiKey) {
+      return {
+        ok: false,
+        model: config.openaiModel,
+        openaiKeySet: false,
+        code: 'openai_auth',
+        error: 'OPENAI_API_KEY is not set',
+      };
+    }
+    return Promise.race([
+      vision.checkApiKey(),
+      new Promise<OpenAIKeyCheck>((resolve) => {
+        setTimeout(() => {
+          resolve({
+            ok: true,
+            model: config.openaiModel,
+            openaiKeySet: true,
+            code: 'openai_slow',
+          });
+        }, KEY_CHECK_WAIT_MS);
+      }),
+    ]);
+  }
 
   return app;
 }
@@ -384,9 +447,11 @@ async function processJob(input: {
     error: (obj: object, msg: string) => void;
     warn: (obj: object, msg: string) => void;
   };
+  note: (source: 'server' | 'glasses', message: string, detail?: string) => void;
 }): Promise<void> {
   const started = Date.now();
   input.log.info({ jobId: input.jobId, mode: input.mode }, 'openai started');
+  input.note('server', 'Analyzing…', `job ${input.jobId.slice(0, 8)}`);
   try {
     const settings = await input.prompts.get();
     const instructions = buildInstructions(input.mode, input.question, settings.systemPrompt);
@@ -404,6 +469,7 @@ async function processJob(input: {
       answer,
     });
     input.log.info({ jobId: input.jobId, ms: Date.now() - started }, 'result ready');
+    input.note('server', 'Answer ready', `job ${input.jobId.slice(0, 8)}`);
   } catch (err) {
     const details = publicError(err);
     const message = String(details.message || 'OpenAI failed');
@@ -420,6 +486,11 @@ async function processJob(input: {
           : 'AI could not analyze this photo.',
     });
     input.log.warn({ jobId: input.jobId, errorCode: authFail ? 'openai_auth' : timeout ? 'openai_timeout' : 'openai_error' }, 'job marked error');
+    input.note(
+      'server',
+      authFail ? 'OpenAI key rejected' : timeout ? 'AI timed out' : 'AI could not analyze this photo',
+      `job ${input.jobId.slice(0, 8)}`,
+    );
   }
 }
 
