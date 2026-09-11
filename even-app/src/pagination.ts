@@ -1,53 +1,94 @@
 /**
  * G2 canvas is 576×288. Firmware uses one LVGL font (no size control).
- * Official docs: a full-screen text container holds roughly 400–500 characters.
+ * Overflow on the capturing text container firmware-scrolls, which fights
+ * our page turns. Each page is therefore packed to a conservative line
+ * grid so the HUD never overflows.
  *
- * We paginate against that measured capacity, not a 140-char notification limit.
- *
- * Layout inside the capturing text container:
- *   line 1: "Ask AI          1/4"
+ * Layout:
+ *   line 1: title + page indicator
  *   line 2: blank
- *   remaining: body
+ *   remaining: body (at most BODY_LINES wrapped rows)
  *
- * Header uses ~24 characters + a newline, so body budget is slightly below
- * the 450-character full-screen estimate. Word wrap uses ~42 characters per
- * line (576px minus 8px padding, proportional font ≈ 13px average glyph).
- * Line height ≈ 20px → ~13 body lines after the header.
+ * Glyph metrics are pessimistic (wide Latin, tall line box) so wrapping
+ * on device should match or be looser than this grid.
  */
 export const G2_DISPLAY = {
   width: 576,
   height: 288,
   padding: 4,
-  approxCharWidth: 13,
-  approxLineHeight: 20,
+  approxCharWidth: 16,
+  approxLineHeight: 28,
   headerLines: 2,
 } as const;
 
 export const CHARS_PER_LINE = Math.max(
-  24,
+  20,
   Math.floor((G2_DISPLAY.width - G2_DISPLAY.padding * 2) / G2_DISPLAY.approxCharWidth),
 );
 
-export const BODY_LINES = Math.max(
-  4,
-  Math.floor((G2_DISPLAY.height - G2_DISPLAY.padding * 2) / G2_DISPLAY.approxLineHeight) -
-    G2_DISPLAY.headerLines,
+export const DISPLAY_LINES = Math.max(
+  6,
+  Math.floor((G2_DISPLAY.height - G2_DISPLAY.padding * 2) / G2_DISPLAY.approxLineHeight),
 );
 
-/** Soft character budget per page body (paragraph-aware splitter). */
-export const PAGE_CHAR_BUDGET = Math.min(380, CHARS_PER_LINE * BODY_LINES);
+export const BODY_LINES = Math.max(4, DISPLAY_LINES - G2_DISPLAY.headerLines);
+
+/** Upper bound if every body row is full. Real pages are limited by BODY_LINES. */
+export const PAGE_CHAR_BUDGET = CHARS_PER_LINE * BODY_LINES;
 
 export type PageSet = {
   pages: string[];
   total: number;
 };
 
-export function paginate(text: string, budget = PAGE_CHAR_BUDGET): PageSet {
+export function wrapToLines(text: string, width = CHARS_PER_LINE): string[] {
+  const lines: string[] = [];
+  for (const raw of text.split('\n')) {
+    if (!raw) {
+      lines.push('');
+      continue;
+    }
+    const words = raw.split(/\s+/).filter(Boolean);
+    let line = '';
+    for (const word of words) {
+      if (word.length > width) {
+        if (line) {
+          lines.push(line);
+          line = '';
+        }
+        for (let i = 0; i < word.length; i += width) {
+          lines.push(word.slice(i, i + width));
+        }
+        continue;
+      }
+      const next = line ? `${line} ${word}` : word;
+      if (next.length <= width) {
+        line = next;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+
+export function countWrappedLines(text: string, width = CHARS_PER_LINE): number {
+  return wrapToLines(text, width).length;
+}
+
+export function paginate(text: string): PageSet {
   const cleaned = normalizeAnswer(text);
   if (!cleaned) return { pages: [''], total: 1 };
 
-  const chunks = splitToBudget(cleaned, budget);
-  return { pages: chunks, total: chunks.length };
+  const lines = wrapToLines(cleaned);
+  const pages: string[] = [];
+  for (let i = 0; i < lines.length; i += BODY_LINES) {
+    const chunk = lines.slice(i, i + BODY_LINES).join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+    if (chunk) pages.push(chunk);
+  }
+  return { pages: pages.length ? pages : [''], total: Math.max(1, pages.length) };
 }
 
 export function pageIndicator(index: number, total: number): string {
@@ -60,17 +101,18 @@ export function formatHudPage(title: string, body: string, index: number, total:
   return `${header}\n\n${body}`.trimEnd();
 }
 
-export function compactAnswer(text: string, budget = PAGE_CHAR_BUDGET): string {
+export function compactAnswer(text: string): string {
   const cleaned = normalizeAnswer(text);
   const sentences = splitSentences(cleaned);
   let out = '';
   for (const sentence of sentences) {
     const next = out ? `${out} ${sentence}` : sentence;
-    if (next.length > Math.min(budget, 280) && out) break;
+    if (countWrappedLines(next) > BODY_LINES && out) break;
     out = next;
-    if (out.length >= Math.min(budget, 280)) break;
+    if (countWrappedLines(out) >= BODY_LINES) break;
   }
-  return out || cleaned.slice(0, budget);
+  if (out) return wrapToLines(out).slice(0, BODY_LINES).join('\n');
+  return wrapToLines(cleaned).slice(0, BODY_LINES).join('\n');
 }
 
 export function normalizeAnswer(text: string): string {
@@ -84,104 +126,11 @@ export function normalizeAnswer(text: string): string {
 
 function padHeader(title: string, indicator: string): string {
   const gap = Math.max(1, CHARS_PER_LINE - title.length - indicator.length);
-  return `${title}${' '.repeat(gap)}${indicator}`.slice(0, CHARS_PER_LINE + 8);
-}
-
-function splitToBudget(text: string, budget: number): string[] {
-  const paragraphs = text.split(/\n{2,}/);
-  const pages: string[] = [];
-  let current = '';
-
-  const flush = () => {
-    if (current) {
-      pages.push(current.trim());
-      current = '';
-    }
-  };
-
-  for (const paragraph of paragraphs) {
-    const block = paragraph.trim();
-    if (!block) continue;
-
-    if (block.length <= budget) {
-      const candidate = current ? `${current}\n\n${block}` : block;
-      if (candidate.length <= budget) {
-        current = candidate;
-      } else {
-        flush();
-        current = block;
-      }
-      continue;
-    }
-
-    flush();
-    for (const piece of splitLongBlock(block, budget)) {
-      if (current && `${current}\n\n${piece}`.length <= budget) {
-        current = `${current}\n\n${piece}`;
-      } else {
-        flush();
-        current = piece;
-      }
-    }
-  }
-  flush();
-  return pages.length ? pages : [''];
-}
-
-function splitLongBlock(block: string, budget: number): string[] {
-  const sentences = splitSentences(block);
-  const parts: string[] = [];
-  let current = '';
-  for (const sentence of sentences) {
-    if (sentence.length > budget) {
-      if (current) {
-        parts.push(current.trim());
-        current = '';
-      }
-      parts.push(...splitWords(sentence, budget));
-      continue;
-    }
-    const candidate = current ? `${current} ${sentence}` : sentence;
-    if (candidate.length <= budget) {
-      current = candidate;
-    } else {
-      if (current) parts.push(current.trim());
-      current = sentence;
-    }
-  }
-  if (current) parts.push(current.trim());
-  return parts;
+  return `${title}${' '.repeat(gap)}${indicator}`.slice(0, CHARS_PER_LINE);
 }
 
 function splitSentences(text: string): string[] {
   const matches = text.match(/[^.!?\n]+[.!?]?(\s+|$)|[^\n]+/g);
   if (!matches) return [text];
   return matches.map((s) => s.trim()).filter(Boolean);
-}
-
-function splitWords(text: string, budget: number): string[] {
-  const words = text.split(/\s+/);
-  const parts: string[] = [];
-  let current = '';
-  for (const word of words) {
-    if (word.length > budget) {
-      if (current) {
-        parts.push(current);
-        current = '';
-      }
-      for (let i = 0; i < word.length; i += budget) {
-        parts.push(word.slice(i, i + budget));
-      }
-      continue;
-    }
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= budget) {
-      current = candidate;
-    } else {
-      parts.push(current);
-      current = word;
-    }
-  }
-  if (current) parts.push(current);
-  return parts;
 }

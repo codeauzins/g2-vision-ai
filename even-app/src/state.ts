@@ -1,7 +1,7 @@
 import type { JobView, PollOutcome, ScreenKind } from './types.js';
 import { compactAnswer, formatHudPage, paginate } from './pagination.js';
 
-export const TITLE = 'Ask AI b-05';
+export const TITLE = 'Ask AI b-06';
 
 export function classifyFetchError(err: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'App authentication failed.';

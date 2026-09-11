@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { DEMO_ANSWER } from '../src/demo.js';
+import { TITLE } from '../src/state.js';
 import {
-  PAGE_CHAR_BUDGET,
+  BODY_LINES,
+  CHARS_PER_LINE,
+  DISPLAY_LINES,
   compactAnswer,
+  countWrappedLines,
   formatHudPage,
   pageIndicator,
   paginate,
+  wrapToLines,
 } from '../src/pagination.js';
 
 describe('pagination', () => {
@@ -15,35 +20,35 @@ describe('pagination', () => {
     expect(set.pages[0]).toContain('Green square');
   });
 
-  it('splits the demo answer across several G2 pages without a 140-char cap', () => {
+  it('fits every page on one G2 screen with no leftover wrap', () => {
     const set = paginate(DEMO_ANSWER);
-    expect(set.total).toBeGreaterThanOrEqual(3);
-    expect(set.total).toBeLessThanOrEqual(8);
+    expect(set.total).toBeGreaterThan(1);
     for (const page of set.pages) {
-      expect(page.length).toBeLessThanOrEqual(PAGE_CHAR_BUDGET + 8);
+      expect(countWrappedLines(page)).toBeLessThanOrEqual(BODY_LINES);
+      for (const line of wrapToLines(page)) {
+        expect(line.length).toBeLessThanOrEqual(CHARS_PER_LINE);
+      }
+      const hud = formatHudPage(TITLE, page, 0, set.total);
+      expect(countWrappedLines(hud)).toBeLessThanOrEqual(DISPLAY_LINES);
     }
-    expect(Math.max(...set.pages.map((p) => p.length))).toBeGreaterThan(140);
     expect(set.pages.join(' ')).toContain("Today's specials");
     expect(set.pages.join(' ')).toContain('risotto');
   });
 
-  it('prefers paragraph boundaries', () => {
-    const a = 'A'.repeat(80);
-    const b = 'B'.repeat(80);
-    const set = paginate(`${a}\n\n${b}`, 100);
-    expect(set.pages[0]).toBe(a);
-    expect(set.pages[1]).toBe(b);
+  it('starts a new page instead of overflowing a long paragraph', () => {
+    const set = paginate(`${'word '.repeat(80)}end`);
+    expect(set.total).toBeGreaterThan(1);
+    for (const page of set.pages) {
+      expect(countWrappedLines(page)).toBeLessThanOrEqual(BODY_LINES);
+    }
+    expect(set.pages.join(' ')).toContain('end');
   });
 
-  it('does not split words unless a token exceeds the budget', () => {
-    const set = paginate('alpha bravo charlie delta echo', 14);
-    for (const page of set.pages) {
-      expect(page.startsWith(' ') || page.endsWith(' ')).toBe(false);
-      if (!page.includes(' ')) {
-        expect(['alpha', 'bravo', 'charlie', 'delta', 'echo'].some((w) => page.includes(w))).toBe(
-          true,
-        );
-      }
+  it('does not split words unless a token exceeds the line width', () => {
+    const lines = wrapToLines('alpha bravo charlie delta echo', 14);
+    for (const line of lines) {
+      expect(line.startsWith(' ') || line.endsWith(' ')).toBe(false);
+      expect(line.length).toBeLessThanOrEqual(14);
     }
   });
 
@@ -53,11 +58,13 @@ describe('pagination', () => {
     expect(hud).toContain('Ask AI');
     expect(hud).toContain('1/1');
     expect(hud).toContain('Ready');
+    expect(countWrappedLines(hud)).toBeLessThanOrEqual(DISPLAY_LINES);
   });
 
-  it('builds a one-page short answer', () => {
+  it('builds a one-screen short answer', () => {
     const short = compactAnswer(DEMO_ANSWER);
     expect(short.length).toBeLessThan(DEMO_ANSWER.length);
     expect(short).toContain('Street menu');
+    expect(countWrappedLines(short)).toBeLessThanOrEqual(BODY_LINES);
   });
 });
