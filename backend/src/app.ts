@@ -1,20 +1,24 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import type { AppConfig } from './config.js';
 import { requestToken, newJobId, secretsEqual } from './auth.js';
 import { HttpError, httpError } from './errors.js';
 import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl } from './image.js';
-import { parseMode } from './modes.js';
+import { buildInstructions, parseMode, userPrompt } from './modes.js';
 import type { OpenAIKeyCheck, VisionClient } from './openai.js';
 import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
+import { MemoryPromptStore, type PromptStore } from './settings.js';
+import { registerAdminRoutes } from './admin.js';
 import { APP_VERSION } from './version.js';
 import { publicError } from './log.js';
 
 export type AppDeps = {
   config: AppConfig;
   store?: ResultStore;
+  prompts?: PromptStore;
   vision: VisionClient;
   now?: () => number;
 };
@@ -28,6 +32,7 @@ type IncomingImage = {
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, vision } = deps;
   const store = deps.store ?? new MemoryResultStore();
+  const prompts = deps.prompts ?? new MemoryPromptStore();
   const now = deps.now ?? Date.now;
   let seq = 0;
   const KEY_CHECK_TTL_MS = 30_000;
@@ -55,6 +60,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Device-Id'],
   });
+
+  await app.register(formbody);
 
   await app.register(rateLimit, {
     max: config.rateLimitMax,
@@ -281,10 +288,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       seq,
       mode,
       deviceId,
+      question,
       createdAt,
       updatedAt: createdAt,
       expiresAt: now() + config.resultTtlMs,
     });
+    await store.saveImage(jobId, optimized.buffer);
 
     request.log.info(
       {
@@ -309,6 +318,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       question,
       vision,
       store,
+      prompts,
       log: request.log,
     }).finally(() => {
       optimized.buffer.fill(0);
@@ -344,6 +354,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return { ok: true, result: toJobView(job) };
   });
 
+  app.get('/api/history', async (request) => {
+    requireAuth(request);
+    await store.purgeExpired(now());
+    const jobs = (await store.list(20)).filter(
+      (job) => job.status === 'complete' || job.status === 'error',
+    );
+    return { ok: true, results: jobs.map(toJobView) };
+  });
+
+  registerAdminRoutes(app, { config, store, prompts, now });
+
   return app;
 }
 
@@ -354,6 +375,7 @@ async function processJob(input: {
   question?: string;
   vision: VisionClient;
   store: ResultStore;
+  prompts: PromptStore;
   log: {
     info: (obj: object, msg: string) => void;
     error: (obj: object, msg: string) => void;
@@ -363,10 +385,15 @@ async function processJob(input: {
   const started = Date.now();
   input.log.info({ jobId: input.jobId, mode: input.mode }, 'openai started');
   try {
+    const settings = await input.prompts.get();
+    const instructions = buildInstructions(input.mode, input.question, settings.systemPrompt);
+    const userText = userPrompt(input.mode, input.question, settings.userPrompt);
     const answer = await input.vision.analyze({
       imageDataUrl: input.dataUrl,
       mode: input.mode,
       question: input.question,
+      instructions,
+      userText,
     });
     input.log.info({ jobId: input.jobId, ms: Date.now() - started, chars: answer.length }, 'openai completed');
     await input.store.update(input.jobId, {

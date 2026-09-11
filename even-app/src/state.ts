@@ -1,7 +1,7 @@
 import type { JobView, PollOutcome, ScreenKind } from './types.js';
 import { compactAnswer, formatHudPage, paginate } from './pagination.js';
 
-export const TITLE = 'Ask AI b-03';
+export const TITLE = 'Ask AI b-04';
 
 export function classifyFetchError(err: unknown, status?: number): string {
   if (status === 401 || status === 403) return 'App authentication failed.';
@@ -86,6 +86,7 @@ export function resultScreen(
   answer: string,
   pageIndex: number,
   compact: boolean,
+  title = TITLE,
 ): {
   kind: ScreenKind;
   title: string;
@@ -98,14 +99,14 @@ export function resultScreen(
   const index = clamp(pageIndex, 0, pages.length - 1);
   return {
     kind: 'result',
-    title: TITLE,
+    title,
     body: pages[index] ?? '',
     pages,
     pageIndex: index,
   };
 }
 
-export function errorScreen(message: string): {
+export function errorScreen(message: string, title = TITLE): {
   kind: ScreenKind;
   title: string;
   body: string;
@@ -113,7 +114,7 @@ export function errorScreen(message: string): {
   pageIndex: number;
 } {
   const body = `${message}\n\nTap to retry. Menu → Exit to leave.`;
-  return { kind: 'error', title: TITLE, body, pages: [body], pageIndex: 0 };
+  return { kind: 'error', title, body, pages: [body], pageIndex: 0 };
 }
 
 export function renderScreen(kind: ScreenKind, title: string, body: string, index: number, total: number): string {

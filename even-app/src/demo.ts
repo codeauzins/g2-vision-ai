@@ -24,14 +24,21 @@ Card on the counter: contactless yes, cash yes, no American Express. Tip jar is 
 
 Queue: two people ahead. The specials board is the source of truth, not the printed paper menu on the table, which is last week's list.`;
 
-export function demoJob(id = 'demo-local-1') {
+export function demoJob(id = 'demo-local-1', seq = 1, answer = DEMO_ANSWER) {
   return {
     jobId: id,
     status: 'complete' as const,
-    seq: 1,
+    seq,
     mode: 'general',
-    answer: DEMO_ANSWER,
+    answer,
     createdAt: new Date().toISOString(),
   };
+}
+
+export function demoJobs() {
+  return [
+    demoJob('demo-local-2', 2, 'Second photo: a green square on a table. Latest job.'),
+    demoJob('demo-local-1', 1, DEMO_ANSWER),
+  ];
 }
 

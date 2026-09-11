@@ -38,6 +38,8 @@ Backend workspace scripts: `npm run dev -w backend`, `npm test -w backend`, etc.
 npm run dev:backend
 # listens on http://127.0.0.1:8787
 curl http://127.0.0.1:8787/health
+# Admin UI (password = G2_ADMIN_PASSWORD or G2_DEVICE_SECRET):
+# http://127.0.0.1:8787/admin
 ```
 
 ## Curl upload

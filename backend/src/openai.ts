@@ -5,6 +5,8 @@ export type VisionAnalyzeInput = {
   imageDataUrl: string;
   mode: AnalysisMode;
   question?: string;
+  instructions?: string;
+  userText?: string;
 };
 
 export type OpenAIKeyCheck = {
@@ -58,12 +60,12 @@ export class OpenAIVisionClient implements VisionClient {
     try {
       const response = await this.client.responses.create({
         model: this.model,
-        instructions: buildInstructions(input.mode, input.question),
+        instructions: input.instructions ?? buildInstructions(input.mode, input.question),
         input: [
           {
             role: 'user',
             content: [
-              { type: 'input_text', text: userPrompt(input.mode, input.question) },
+              { type: 'input_text', text: input.userText ?? userPrompt(input.mode, input.question) },
               { type: 'input_image', image_url: input.imageDataUrl, detail: 'high' },
             ],
           },

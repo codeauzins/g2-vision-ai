@@ -46,7 +46,8 @@ In the Render dashboard → Environment:
 | `OPENAI_API_KEY` | your OpenAI secret key (required for real photos) |
 | `G2_DEVICE_SECRET` | output of `openssl rand -hex 32` |
 | `OPENAI_MODEL` | `gpt-4o-mini` unless you choose another vision-capable model |
-| `RESULT_TTL_SECONDS` | `3600` |
+| `G2_ADMIN_PASSWORD` | optional extra password for `https://YOUR-SERVICE.onrender.com/admin` |
+| `RESULT_TTL_SECONDS` | `604800` (7 days of photo/answer history) |
 | `MAX_UPLOAD_MB` | `8` |
 | `IMAGE_MAX_EDGE` | `1600` |
 | `IMAGE_JPEG_QUALITY` | `80` |

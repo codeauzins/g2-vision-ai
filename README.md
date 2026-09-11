@@ -10,7 +10,7 @@ This is a personal, private stack for one wearer:
 
 1. iPhone Action Button runs an Apple Shortcut.
 2. Shortcut takes a photo and POSTs it to your Render service.
-3. Render resizes the image, calls the OpenAI **Responses** API with vision input, stores the answer in memory with a TTL, then deletes the image bytes.
+3. Render resizes the image, calls the OpenAI **Responses** API with vision input, stores the answer (and a copy of the optimized photo) for the admin page, then continues.
 4. The Even Hub app on the phone WebView polls `GET /api/latest` every 1.5s and draws the answer on the G2.
 
 The OpenAI API key never leaves Render. The Shortcut and glasses app share only a bearer device secret.
@@ -70,6 +70,10 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 | POST | `/api/analyze` | Bearer | Upload image, start job (202) |
 | GET | `/api/result/:jobId` | Bearer | Job status / answer |
 | GET | `/api/latest` | Bearer | Newest job (or `{ result: null }`) |
+| GET | `/api/history` | Bearer | Last 20 complete/error jobs for the glasses |
+| GET | `/admin` | cookie | Password page: settings, prompt editor, photo history |
+
+Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. Edit the OpenAI system prompt there; the next Action Button photo uses it. Previous photos and answers are listed on the same page.
 
 `POST /api/analyze` accepts:
 
@@ -79,7 +83,7 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 
 Modes: `general` (default), `ocr`, `translate`, `explain`, `short`.
 
-Images are resized so the longest edge is 1600px and re-encoded as JPEG quality 80, then discarded after the OpenAI call. HEIC is rejected on purpose — convert to JPEG in Shortcuts.
+Images are resized so the longest edge is 1600px and re-encoded as JPEG quality 80. A copy is kept for the admin history (under `G2_DATA_DIR/images`). HEIC is rejected on purpose — convert to JPEG in Shortcuts.
 
 ## Even Hub App
 
@@ -93,6 +97,7 @@ Gestures (official `OsEventTypeList`; R1 ring and G2 temples share the same even
 - Swipe up → previous page
 - Tap → next page (on a result) or retry (after the double-tap window)
 - **Quick Blank:** R1 / temple **double tap** → blank the HUD; double tap again → restore. A new Ask AI result wakes the HUD on page 1. Polling does not stop.
+- **Job history:** R1 **long press** → older job (and its answer). **Tap** → newer job while browsing history. Swipe still turns pages inside the current answer. Menu: Older Job / Newer Job (Even OS uses tap-then-long-press for its own menu, so a direct hold is the app gesture).
 - Tap then long-press → contextual menu: Refresh, Previous Page, Next Page, Clear, Short Answer, **Exit** (`shutDownPageContainer(1)`)
 
 There is **no** SDK display-off API. Quick Blank is an empty text container (black pixels are off). See [docs/g2-pagination.md](docs/g2-pagination.md#quick-blank).
@@ -120,9 +125,10 @@ Cold start: the first request after idle can take tens of seconds. The glasses a
 | `OPENAI_API_KEY` | Render only | Never in git, Shortcut, or the Even app |
 | `OPENAI_MODEL` | Render | Default `gpt-4o-mini` |
 | `G2_DEVICE_SECRET` | Render + Shortcut + `VITE_DEVICE_SECRET` | Long random bearer token |
-| `G2_DATA_DIR` | Render | `/var/data2` — stores answer JSON only, not photos |
+| `G2_ADMIN_PASSWORD` | Render | Password for `/admin`. If unset, `G2_DEVICE_SECRET` is used |
+| `G2_DATA_DIR` | Render | `/var/data2` — answers, prompt settings, and optimized photos |
 | `PORT` | Render | Provided automatically |
-| `RESULT_TTL_SECONDS` | Render | Default 3600 |
+| `RESULT_TTL_SECONDS` | Render | Default 604800 (7 days); older tasks are deleted |
 | `MAX_UPLOAD_MB` | Render | Default 8 |
 | `IMAGE_MAX_EDGE` | Render | Default 1600 |
 | `IMAGE_JPEG_QUALITY` | Render | Default 80 |
@@ -172,15 +178,16 @@ Full procedure: [docs/even-private-install.md](docs/even-private-install.md).
 
 ## Security
 
-- `OPENAI_API_KEY` exists only as a Render env var.
-- Photos are optimized in RAM, sent to OpenAI, then buffers are zeroed. No disk archive.
+- `OPENAI_API_KEY` exists only as a Render env var and is never shown on `/admin`.
+- Optimized JPEGs and answers are stored on the Render disk for the admin history until `RESULT_TTL_SECONDS`.
+- `/admin` is cookie-gated (`G2_ADMIN_PASSWORD` or `G2_DEVICE_SECRET`).
 - Logs record job ids, byte sizes, timings — not image bytes, not full answers.
 - Results expire (`RESULT_TTL_SECONDS`).
 - Auth is a single personal bearer token (timing-safe compare). This is a one-user V1, not multi-tenant.
 
 ## Privacy
 
-Default behavior: no photo persistence, automatic image deletion after analysis, TTL on answers, no OpenAI key on device. Render may still receive the image in transit to OpenAI under [OpenAI's API data usage](https://developers.openai.com/api/docs/guides/images-vision).
+Default behavior: optimized JPEGs and answers stay on the Render disk for `/admin` until they expire (`RESULT_TTL_SECONDS`). The OpenAI key is never on the glasses or Shortcut. Render still sends photos to OpenAI under [OpenAI's API data usage](https://developers.openai.com/api/docs/guides/images-vision).
 
 ## Project Structure
 
@@ -194,6 +201,6 @@ render.yaml       Render Blueprint
 
 ## Future (not in V1)
 
-G2 voice question, conversation history, follow-ups, custom prompts, web search, per-user accounts, Redis, WebSockets/push, photo history. The job store and analysis modes are extension points only.
+G2 voice question, conversation history, follow-ups, web search, per-user accounts, Redis, WebSockets/push.
 
 Official sources: [docs/references.md](docs/references.md).

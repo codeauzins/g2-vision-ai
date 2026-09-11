@@ -4,13 +4,14 @@ export type AppConfig = {
   openaiModel: string;
   openaiBaseUrl: string;
   deviceSecret: string;
+  adminPassword: string;
   resultTtlMs: number;
   maxUploadBytes: number;
   imageMaxEdge: number;
   imageJpegQuality: number;
   rateLimitMax: number;
   rateLimitWindowMs: number;
-  /** Directory for JSON job persistence (answers only, never photos). Empty = memory. */
+  /** Directory for JSON jobs, prompt settings, and optimized JPEGs. Empty = memory. */
   dataDir: string;
 };
 
@@ -33,6 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     openaiModel: env.OPENAI_MODEL || 'gpt-4o-mini',
     openaiBaseUrl: (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
     deviceSecret: env.G2_DEVICE_SECRET || '',
+    adminPassword: (env.G2_ADMIN_PASSWORD || env.G2_DEVICE_SECRET || '').trim(),
     resultTtlMs: ttlSeconds * 1000,
     maxUploadBytes: maxMb * 1024 * 1024,
     imageMaxEdge: num('IMAGE_MAX_EDGE', 1600),

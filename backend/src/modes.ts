@@ -2,7 +2,7 @@ export const MODES = ['general', 'ocr', 'translate', 'explain', 'short'] as cons
 
 export type AnalysisMode = (typeof MODES)[number];
 
-const SHARED = `You write answers for Even Realities G2 smart glasses.
+export const DEFAULT_SYSTEM_PROMPT = `You write answers for Even Realities G2 smart glasses.
 The wearer glances at a small green HUD. Be immediately useful.
 
 Rules:
@@ -37,14 +37,24 @@ export function parseMode(value: unknown): AnalysisMode {
   return 'general';
 }
 
-export function buildInstructions(mode: AnalysisMode, question?: string): string {
+export const DEFAULT_USER_PROMPT = 'What is in this photo? Give me the useful answer for glasses.';
+
+export function buildInstructions(
+  mode: AnalysisMode,
+  question?: string,
+  systemPrompt = DEFAULT_SYSTEM_PROMPT,
+): string {
   const asked = question?.trim()
     ? `\nThe wearer also asked: ${question.trim()}\nAnswer that question using the photo.`
     : '';
-  return `${SHARED}\n\n${MODE_EXTRA[mode]}${asked}`;
+  return `${systemPrompt.trim()}\n\n${MODE_EXTRA[mode]}${asked}`;
 }
 
-export function userPrompt(mode: AnalysisMode, question?: string): string {
+export function userPrompt(
+  mode: AnalysisMode,
+  question?: string,
+  defaultUserPrompt = DEFAULT_USER_PROMPT,
+): string {
   if (question?.trim()) {
     return question.trim();
   }
@@ -58,6 +68,6 @@ export function userPrompt(mode: AnalysisMode, question?: string): string {
     case 'short':
       return 'What is this? Give me the short version.';
     default:
-      return 'What is in this photo? Give me the useful answer for glasses.';
+      return defaultUserPrompt.trim() || DEFAULT_USER_PROMPT;
   }
 }

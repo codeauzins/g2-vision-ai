@@ -14,7 +14,7 @@ services:
       - key: OPENAI_MODEL
         value: gpt-4o-mini
       - key: RESULT_TTL_SECONDS
-        value: "3600"
+        value: "604800"
       - key: MAX_UPLOAD_MB
         value: "8"
       - key: IMAGE_MAX_EDGE
@@ -24,6 +24,8 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: G2_DEVICE_SECRET
+        sync: false
+      - key: G2_ADMIN_PASSWORD
         sync: false
       - key: G2_DATA_DIR
         value: /var/data2

@@ -1,4 +1,4 @@
-import type { LatestResponse, OpenAIStatusResponse } from './types.js';
+import type { HistoryResponse, LatestResponse, OpenAIStatusResponse } from './types.js';
 
 export class ApiError extends Error {
   constructor(
@@ -62,6 +62,14 @@ export async function fetchLatest(
   signal?: AbortSignal,
 ): Promise<LatestResponse> {
   return authedGet<LatestResponse>(apiBaseUrl, deviceSecret, '/api/latest', signal);
+}
+
+export async function fetchHistory(
+  apiBaseUrl: string,
+  deviceSecret: string,
+  signal?: AbortSignal,
+): Promise<HistoryResponse> {
+  return authedGet<HistoryResponse>(apiBaseUrl, deviceSecret, '/api/history', signal);
 }
 
 export async function fetchOpenAIStatus(

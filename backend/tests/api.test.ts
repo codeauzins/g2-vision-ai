@@ -237,6 +237,15 @@ describe('g2-vision-ai backend', () => {
     expect(latest.json().result.jobId).toBe(jobId);
     expect(latest.json().result.seq).toBe(1);
     expect(vision.analyze).toHaveBeenCalledOnce();
+
+    const history = await app.inject({
+      method: 'GET',
+      url: '/api/history',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(history.statusCode).toBe(200);
+    expect(history.json().results).toHaveLength(1);
+    expect(history.json().results[0].answer).toContain('green square');
     await app.close();
   });
 
@@ -306,6 +315,106 @@ describe('g2-vision-ai backend', () => {
     await app.close();
   });
 
+  it('protects the admin page and shows saved photos after login', async () => {
+    const { app } = await makeApp();
+    const locked = await app.inject({ method: 'GET', url: '/admin' });
+    expect(locked.statusCode).toBe(200);
+    expect(locked.body).toContain('Password');
+    expect(locked.body).not.toContain('OpenAI prompt');
+
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/admin/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'password=nope',
+    });
+    expect(denied.statusCode).toBe(401);
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/admin/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `password=${SECRET}`,
+    });
+    expect(login.statusCode).toBe(303);
+    const cookie = String(login.headers['set-cookie'] || '');
+    expect(cookie).toContain('g2_admin=');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/analyze',
+      headers: {
+        authorization: `Bearer ${SECRET}`,
+        'content-type': 'image/jpeg',
+      },
+      payload: await jpeg(48),
+    });
+    const jobId = String(created.json().jobId);
+    await waitForJob(app, jobId);
+
+    const dash = await app.inject({
+      method: 'GET',
+      url: '/admin',
+      headers: { cookie: cookie.split(';')[0] },
+    });
+    expect(dash.body).toContain('OpenAI prompt');
+    expect(dash.body).toContain(jobId);
+    expect(dash.body).toContain('green square');
+
+    const image = await app.inject({
+      method: 'GET',
+      url: `/admin/image/${jobId}`,
+      headers: { cookie: cookie.split(';')[0] },
+    });
+    expect(image.statusCode).toBe(200);
+    expect(image.headers['content-type']).toMatch(/image\/jpeg/);
+    expect(image.rawPayload.length).toBeGreaterThan(32);
+
+    const anonImage = await app.inject({ method: 'GET', url: `/admin/image/${jobId}` });
+    expect(anonImage.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('uses the admin-edited OpenAI prompt on the next photo', async () => {
+    const seen: string[] = [];
+    const { app } = await makeApp({
+      analyze: async (input) => {
+        seen.push(input.instructions || '');
+        return 'ok';
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/admin/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `password=${SECRET}`,
+    });
+    const cookie = String(login.headers['set-cookie'] || '').split(';')[0];
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/admin/settings',
+      headers: {
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: 'systemPrompt=Always mention BANANA.&userPrompt=Describe this.',
+    });
+    expect(saved.statusCode).toBe(303);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/analyze',
+      headers: {
+        authorization: `Bearer ${SECRET}`,
+        'content-type': 'image/jpeg',
+      },
+      payload: await jpeg(),
+    });
+    await waitForJob(app, String(created.json().jobId));
+    expect(seen.some((text) => text.includes('BANANA'))).toBe(true);
+    await app.close();
+  });
+
   it('returns empty latest without crashing', async () => {
     const { app } = await makeApp();
     const latest = await app.inject({
@@ -363,5 +472,25 @@ describe('file store', () => {
     const latest = await second.latest();
     expect(latest?.jobId).toBe('a');
     expect(latest?.answer).toBe('ok');
+  });
+
+  it('reloads a stored photo from disk', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'g2-img-'));
+    const file = join(dir, 'jobs.json');
+    const first = new FileResultStore(file);
+    await first.create({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      status: 'complete',
+      seq: 1,
+      mode: 'general',
+      answer: 'ok',
+      createdAt: 't',
+      updatedAt: 't',
+      expiresAt: Date.now() + 60_000,
+    });
+    await first.saveImage('11111111-1111-4111-8111-111111111111', Buffer.from('jpeg-bytes'));
+    const second = new FileResultStore(file);
+    const image = await second.getImage('11111111-1111-4111-8111-111111111111');
+    expect(image?.bytes.toString()).toBe('jpeg-bytes');
   });
 });

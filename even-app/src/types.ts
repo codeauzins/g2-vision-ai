@@ -15,6 +15,11 @@ export type JobView = {
   updatedAt?: string;
 };
 
+export type HistoryResponse = {
+  ok: boolean;
+  results: JobView[];
+};
+
 export type LatestResponse = {
   ok: boolean;
   result: JobView | null;

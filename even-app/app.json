@@ -1,7 +1,7 @@
 {
   "package_id": "com.codeauzins.g2visionai",
-  "name": "Ask AI b-03",
-  "version": "0.1.3",
+  "name": "Ask AI b-04",
+  "version": "0.1.4",
   "edition": "202601",
   "min_sdk_version": "0.0.15",
   "entrypoint": "index.html",

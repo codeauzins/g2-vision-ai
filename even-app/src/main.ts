@@ -7,10 +7,16 @@ import {
   TextContainerUpgrade,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
-import { fetchLatest, fetchOpenAIStatus, ApiError } from './api.js';
+import { fetchLatest, fetchHistory, fetchOpenAIStatus, ApiError } from './api.js';
 import { loadAppConfig } from './config.js';
-import { demoJob } from './demo.js';
+import { demoJobs } from './demo.js';
 import { createDoubleTapGuard } from './doubleTap.js';
+import {
+  historyTitle,
+  mergeHistory,
+  newerHistoryIndex,
+  olderHistoryIndex,
+} from './jobHistory.js';
 import {
   applyPollWhileBlank,
   hudContentFor,
@@ -18,6 +24,7 @@ import {
   type BlankSession,
 } from './quickBlank.js';
 import {
+  TITLE,
   classifyFetchError,
   decidePoll,
   displayKey,
@@ -44,7 +51,9 @@ const MENU = {
   next: 3,
   clear: 4,
   shortAnswer: 5,
-  exit: 6,
+  olderJob: 6,
+  newerJob: 7,
+  exit: 8,
 } as const;
 
 const config = loadAppConfig();
@@ -59,6 +68,9 @@ let started = false;
 let openaiReady = false;
 let isDisplayBlank = false;
 let restorePageIndex = 0;
+let historyJobs: JobView[] = [];
+let historyIndex = 0;
+let lastLongPressAt = 0;
 const tapGuard = createDoubleTapGuard();
 
 const mainText = new TextContainerProperty({
@@ -87,6 +99,8 @@ const createResult = await bridge.createStartUpPageContainer(
         new MenuItemProperty({ itemName: 'Next Page', itemID: MENU.next }),
         new MenuItemProperty({ itemName: 'Clear', itemID: MENU.clear }),
         new MenuItemProperty({ itemName: 'Short Answer', itemID: MENU.shortAnswer }),
+        new MenuItemProperty({ itemName: 'Older Job', itemID: MENU.olderJob }),
+        new MenuItemProperty({ itemName: 'Newer Job', itemID: MENU.newerJob }),
         new MenuItemProperty({ itemName: 'Exit', itemID: MENU.exit }),
       ],
     }),
@@ -115,6 +129,10 @@ bridge.onEvenHubEvent((event) => {
     onDoubleTap();
     return;
   }
+  if (sysType === OsEventTypeList.LONG_PRESS_EVENT) {
+    void onOlderJob();
+    return;
+  }
 
   const textEvent = event.textEvent;
   if (textEvent && textEvent.containerID === MAIN_ID) {
@@ -138,7 +156,9 @@ bridge.onEvenHubEvent((event) => {
 
 if (config.mockApi) {
   openaiReady = true;
-  applyComplete(demoJob());
+  historyJobs = demoJobs();
+  historyIndex = 0;
+  applyComplete(historyJobs[0]!);
 } else {
   void startPolling();
 }
@@ -189,11 +209,78 @@ function onPossibleClick(): void {
 
 function onSingleTap(): void {
   if (isDisplayBlank) return;
+  if (historyIndex > 0) {
+    void onNewerJob();
+    return;
+  }
   if (screen.kind === 'result') {
     turnPage(1);
   } else if (screen.kind === 'error' || screen.kind === 'waiting') {
     void pollOnce(true);
   }
+}
+
+function activeHudTitle(): string {
+  return historyTitle(TITLE, historyIndex, historyJobs.length);
+}
+
+function showHistoryJob(index: number): void {
+  const job = historyJobs[index];
+  if (!job) return;
+  historyIndex = index;
+  compact = false;
+  isDisplayBlank = false;
+  const title = activeHudTitle();
+  if (job.status === 'complete' && job.answer) {
+    currentAnswer = job.answer;
+    screen = { ...resultScreen(currentAnswer, 0, compact, title), jobId: job.jobId, seq: job.seq };
+  } else {
+    currentAnswer = '';
+    screen = {
+      ...errorScreen(glassesErrorFromJob(job), title),
+      jobId: job.jobId,
+      seq: job.seq,
+    };
+  }
+  void redraw();
+}
+
+async function refreshHistory(): Promise<void> {
+  if (config.mockApi) {
+    historyJobs = mergeHistory(historyJobs, demoJobs());
+    return;
+  }
+  if (!config.apiBaseUrl || !config.deviceSecret) return;
+  const payload = await fetchHistory(config.apiBaseUrl, config.deviceSecret);
+  historyJobs = mergeHistory(historyJobs, payload.results || []);
+  if (historyIndex >= historyJobs.length) historyIndex = Math.max(0, historyJobs.length - 1);
+}
+
+async function onOlderJob(): Promise<void> {
+  if (isDisplayBlank) return;
+  const now = Date.now();
+  if (now - lastLongPressAt < 400) return;
+  lastLongPressAt = now;
+  try {
+    await refreshHistory();
+  } catch {
+    // Keep the in-memory list if history fetch fails.
+  }
+  if (historyJobs.length === 0) return;
+  if (screen.kind === 'waiting' || screen.kind === 'checking') {
+    showHistoryJob(0);
+    return;
+  }
+  const next = olderHistoryIndex(historyIndex, historyJobs.length);
+  if (next === historyIndex) return;
+  showHistoryJob(next);
+}
+
+async function onNewerJob(): Promise<void> {
+  if (isDisplayBlank) return;
+  const next = newerHistoryIndex(historyIndex);
+  if (next === historyIndex) return;
+  showHistoryJob(next);
 }
 
 async function redraw(): Promise<void> {
@@ -213,7 +300,7 @@ function turnPage(delta: number): void {
     delta > 0
       ? nextIndex(screen.pageIndex, screen.pages.length)
       : prevIndex(screen.pageIndex, screen.pages.length);
-  screen = resultScreen(currentAnswer, index, compact);
+  screen = resultScreen(currentAnswer, index, compact, activeHudTitle());
   void redraw();
 }
 
@@ -232,6 +319,7 @@ async function onMenu(itemID: number): Promise<void> {
       currentAnswer = '';
       compact = false;
       isDisplayBlank = false;
+      historyIndex = 0;
       screen = openaiReady ? { ...waitingScreen() } : { ...checkingScreen() };
       await redraw();
       break;
@@ -239,8 +327,14 @@ async function onMenu(itemID: number): Promise<void> {
       if (!currentAnswer) return;
       compact = !compact;
       isDisplayBlank = false;
-      screen = resultScreen(currentAnswer, 0, compact);
+      screen = resultScreen(currentAnswer, 0, compact, activeHudTitle());
       await redraw();
+      break;
+    case MENU.olderJob:
+      await onOlderJob();
+      break;
+    case MENU.newerJob:
+      await onNewerJob();
       break;
     case MENU.exit:
       void bridge.shutDownPageContainer(1);
@@ -262,7 +356,9 @@ async function startPolling(): Promise<void> {
 async function pollOnce(force: boolean): Promise<void> {
   if (config.mockApi) {
     openaiReady = true;
-    applyComplete(demoJob());
+    historyJobs = demoJobs();
+    historyIndex = 0;
+    applyComplete(historyJobs[0]!);
     return;
   }
   if (!config.apiBaseUrl || !config.deviceSecret) {
@@ -290,6 +386,14 @@ async function pollOnce(force: boolean): Promise<void> {
     }
 
     const latest = await fetchLatest(config.apiBaseUrl, config.deviceSecret);
+    try {
+      const payload = await fetchHistory(config.apiBaseUrl, config.deviceSecret);
+      historyJobs = mergeHistory(historyJobs, payload.results || []);
+      if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
+    } catch {
+      if (latest.result) historyJobs = mergeHistory(historyJobs, [latest.result]);
+    }
+
     const decision = decidePoll(force ? undefined : lastSeenKey, latest.result);
     if (isDisplayBlank) {
       const applied = applyPollWhileBlank(blankSession(), decision);
@@ -308,6 +412,10 @@ async function pollOnce(force: boolean): Promise<void> {
     }
     if (decision.kind === 'same') return;
     if (decision.kind === 'processing') {
+      if (historyIndex > 0) {
+        await remember(displayKey(decision.job));
+        return;
+      }
       pollTick += 1;
       screen = { ...processingScreen(pollTick), jobId: decision.job.jobId, seq: decision.job.seq };
       await remember(displayKey(decision.job));
@@ -315,6 +423,7 @@ async function pollOnce(force: boolean): Promise<void> {
       return;
     }
     if (decision.kind === 'error') {
+      historyIndex = 0;
       screen = {
         ...errorScreen(glassesErrorFromJob(decision.job)),
         jobId: decision.job.jobId,
@@ -335,10 +444,12 @@ async function pollOnce(force: boolean): Promise<void> {
 }
 
 function applyComplete(job: JobView): void {
+  historyJobs = mergeHistory(historyJobs, [job]);
+  historyIndex = 0;
   currentAnswer = job.answer || '';
   compact = false;
   screen = {
-    ...resultScreen(currentAnswer, 0, compact),
+    ...resultScreen(currentAnswer, 0, compact, activeHudTitle()),
     jobId: job.jobId,
     seq: job.seq,
   };

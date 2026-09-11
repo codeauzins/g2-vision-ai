@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { loadConfig } from './config.js';
 import { buildApp } from './app.js';
 import { createOpenAIClient } from './openai.js';
+import { FilePromptStore, MemoryPromptStore } from './settings.js';
 import { FileResultStore, MemoryResultStore } from './storage.js';
 import { APP_VERSION } from './version.js';
 
@@ -26,21 +27,27 @@ if (!config.openaiApiKey) {
 }
 
 function openStore(dataDir: string) {
-  if (!dataDir) return new MemoryResultStore();
+  if (!dataDir) {
+    return { store: new MemoryResultStore(), prompts: new MemoryPromptStore() };
+  }
   try {
     mkdirSync(dataDir, { recursive: true });
-    return new FileResultStore(join(dataDir, 'jobs.json'));
+    return {
+      store: new FileResultStore(join(dataDir, 'jobs.json')),
+      prompts: new FilePromptStore(join(dataDir, 'settings.json')),
+    };
   } catch (err) {
     console.warn('G2_DATA_DIR is not writable; using in-memory results', err);
-    return new MemoryResultStore();
+    return { store: new MemoryResultStore(), prompts: new MemoryPromptStore() };
   }
 }
 
-const store = openStore(config.dataDir);
+const { store, prompts } = openStore(config.dataDir);
 
 const app = await buildApp({
   config,
   store,
+  prompts,
   vision: createOpenAIClient(config.openaiApiKey, config.openaiBaseUrl, config.openaiModel),
 });
 
