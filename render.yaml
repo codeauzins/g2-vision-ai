@@ -2,7 +2,7 @@ services:
   - type: web
     name: g2-vision-ai
     runtime: node
-    plan: free
+    plan: starter
     region: oregon
     rootDir: .
     buildCommand: npm install && npm run build -w backend
@@ -14,7 +14,7 @@ services:
       - key: OPENAI_MODEL
         value: gpt-4o-mini
       - key: RESULT_TTL_SECONDS
-        value: "604800"
+        value: "0"
       - key: MAX_UPLOAD_MB
         value: "8"
       - key: IMAGE_MAX_EDGE
@@ -29,3 +29,7 @@ services:
         sync: false
       - key: G2_DATA_DIR
         value: /var/data2
+    disk:
+      name: g2-data
+      mountPath: /var/data2
+      sizeGB: 2

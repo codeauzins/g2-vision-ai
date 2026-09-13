@@ -82,7 +82,7 @@ export function registerAdminRoutes(
     }
     await store.purgeExpired(now());
     const settings = await prompts.get();
-    const jobs = await store.list(80);
+    const jobs = await store.list(1000);
     const logs = await activity.list(150);
     return reply.type('text/html; charset=utf-8').send(dashboardPage({ config, settings, jobs, logs }));
   });
@@ -134,6 +134,31 @@ export function registerAdminRoutes(
     return reply.redirect('/admin', 303);
   });
 
+  app.post('/admin/jobs/delete', async (request, reply) => {
+    requireAdmin(request);
+    const body = (request.body ?? {}) as { jobId?: string };
+    const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
+    if (!/^[0-9a-f-]{36}$/i.test(jobId)) {
+      throw httpError(400, 'bad_request', 'Invalid job id.');
+    }
+    const removed = await store.delete(jobId);
+    request.log.info({ jobId, removed }, 'admin job deleted');
+    void activity.add({
+      source: 'server',
+      message: removed ? 'Job deleted' : 'Job already gone',
+      detail: jobId.slice(0, 8),
+    });
+    return reply.redirect('/admin', 303);
+  });
+
+  app.post('/admin/jobs/delete-all', async (request, reply) => {
+    requireAdmin(request);
+    const count = await store.deleteAll();
+    request.log.info({ count }, 'admin deleted all jobs');
+    void activity.add({ source: 'server', message: 'All jobs deleted', detail: `${count} removed` });
+    return reply.redirect('/admin', 303);
+  });
+
   app.get('/admin/image/:jobId', async (request, reply) => {
     requireAdmin(request);
     const { jobId } = request.params as { jobId: string };
@@ -170,6 +195,7 @@ function shell(title: string, body: string): string {
     textarea { min-height: 220px; }
     button { background: #9cff57; color: #111; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
     button.secondary { background: #2a3324; color: #d7f5c8; }
+    button.danger { background: #5a2424; color: #ffb4b4; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .muted { color: #8aa078; font-size: 13px; }
     .err { color: #ff8a8a; }
@@ -234,6 +260,10 @@ function dashboardPage(input: {
               <p><strong>${esc(job.status)}</strong> · ${esc(job.mode)} · seq ${job.seq}<br />
               <span class="muted">${esc(job.createdAt)} · ${esc(job.jobId)}</span></p>
               <pre>${esc(body)}</pre>
+              <form method="post" action="/admin/jobs/delete" onsubmit="return confirm('Delete this job from history?');">
+                <input type="hidden" name="jobId" value="${esc(job.jobId)}" />
+                <p><button class="danger" type="submit">Delete</button></p>
+              </form>
             </div>
           </article>`;
         })
@@ -280,6 +310,14 @@ function dashboardPage(input: {
      </section>
 
      <h2>Previous tasks</h2>
+     <p class="muted">Jobs stay on disk until you delete them. Glasses Jobs list still shows the newest 20.</p>
+     ${
+       jobs.length
+         ? `<form method="post" action="/admin/jobs/delete-all" onsubmit="return confirm('Delete ALL jobs from history? This cannot be undone.');">
+              <p><button class="danger" type="submit">Delete all jobs</button></p>
+            </form>`
+         : ''
+     }
      ${jobsHtml}`,
   );
 }

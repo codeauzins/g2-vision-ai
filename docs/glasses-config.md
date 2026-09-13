@@ -31,4 +31,4 @@ You never paste `VITE_*` into Render.
 
 ## Disk `/var/data2`
 
-Photos are stored as optimized JPEGs (not originals) under `G2_DATA_DIR/images` so you can review them on `/admin`. Increase `RESULT_TTL_SECONDS` if you want them to last longer than a week.
+Photos are stored as optimized JPEGs (not originals) under `G2_DATA_DIR/images` so you can review them on `/admin`. They stay until you delete them there (`RESULT_TTL_SECONDS=0`).

@@ -1,8 +1,6 @@
 # Render deployment
 
-Target: Render **Free** web service. Cold starts are expected.
-
-Do not paste real API keys into git or into this file.
+Target: Render **paid** web service with a persistent disk at `/var/data2`. Do not paste real API keys into git or into this file.
 
 ## 1. Sign into Render
 
@@ -32,7 +30,7 @@ If creating by hand:
 | Root directory | (leave empty — repo root) |
 | Build command | `npm install && npm run build -w backend` |
 | Start command | `npm run start -w backend` |
-| Instance | Free |
+| Instance | Starter (or your paid plan) |
 | Health check path | `/health` |
 
 `render.yaml` already sets Node 22, health path, and non-secret defaults.
@@ -47,12 +45,14 @@ In the Render dashboard → Environment:
 | `G2_DEVICE_SECRET` | output of `openssl rand -hex 32` |
 | `OPENAI_MODEL` | `gpt-4o-mini` unless you choose another vision-capable model |
 | `G2_ADMIN_PASSWORD` | optional extra password for `https://YOUR-SERVICE.onrender.com/admin` |
-| `RESULT_TTL_SECONDS` | `604800` (7 days of photo/answer history) |
+| `RESULT_TTL_SECONDS` | `0` (keep jobs until you delete them in `/admin`) |
 | `MAX_UPLOAD_MB` | `8` |
 | `IMAGE_MAX_EDGE` | `1600` |
 | `IMAGE_JPEG_QUALITY` | `80` |
 
 `PORT` is injected by Render. Do not hard-code it.
+
+Attach a **persistent disk** mounted at `/var/data2` (see `render.yaml` `disk`). Without that disk, jobs.json is lost on restart and history looks empty the next day.
 
 `OPENAI_API_KEY` and `G2_DEVICE_SECRET` are `sync: false` in `render.yaml`, so a Blueprint apply will prompt you to type them.
 
@@ -120,7 +120,7 @@ or edit `even-app/app.json` `permissions[0].whitelist` to that exact origin (no 
 
 This service is intended to stay up (paid Render). The glasses app keeps the last answer if a poll times out; it does not show a “server waking” screen over a result.
 
-In-memory jobs die on restart. If you photograph during a deploy, take the photo again.
+In-memory jobs die on restart if `G2_DATA_DIR` is not a persistent disk. Mount `/var/data2` so history survives deploys.
 
 ## Logs to look for
 

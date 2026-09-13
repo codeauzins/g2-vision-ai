@@ -31,7 +31,20 @@ export interface ResultStore {
   list(limit?: number): Promise<JobRecord[]>;
   saveImage(jobId: string, bytes: Buffer, mimeType?: string): Promise<void>;
   getImage(jobId: string): Promise<{ bytes: Buffer; mimeType: string } | undefined>;
+  delete(jobId: string): Promise<boolean>;
+  deleteAll(): Promise<number>;
   purgeExpired(now?: number): Promise<number>;
+}
+
+/** 0 means keep forever. */
+export function expiresAtFor(now: number, ttlMs: number): number {
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) return 0;
+  return now + ttlMs;
+}
+
+export function isJobExpired(job: JobRecord, now: number): boolean {
+  if (!job.expiresAt || job.expiresAt <= 0) return false;
+  return job.expiresAt <= now;
 }
 
 export function toJobView(job: JobRecord): JobView {
@@ -89,24 +102,43 @@ export class MemoryResultStore implements ResultStore {
     return this.images.get(jobId);
   }
 
+  async delete(jobId: string): Promise<boolean> {
+    const existed = this.jobs.delete(jobId);
+    this.images.delete(jobId);
+    if (this.latestId === jobId) this.latestId = undefined;
+    if (existed) this.recomputeLatest();
+    return existed;
+  }
+
+  async deleteAll(): Promise<number> {
+    const count = this.jobs.size;
+    this.jobs.clear();
+    this.images.clear();
+    this.latestId = undefined;
+    return count;
+  }
+
   async purgeExpired(now = Date.now()): Promise<number> {
     let removed = 0;
     for (const [id, job] of this.jobs) {
-      if (job.expiresAt <= now) {
+      if (isJobExpired(job, now)) {
         this.jobs.delete(id);
         this.images.delete(id);
         removed += 1;
         if (this.latestId === id) this.latestId = undefined;
       }
     }
-    if (!this.latestId && this.jobs.size > 0) {
-      let newest: JobRecord | undefined;
-      for (const job of this.jobs.values()) {
-        if (!newest || job.seq > newest.seq) newest = job;
-      }
-      this.latestId = newest?.jobId;
-    }
+    if (removed) this.recomputeLatest();
     return removed;
+  }
+
+  protected recomputeLatest(): void {
+    if (this.latestId && this.jobs.has(this.latestId)) return;
+    let newest: JobRecord | undefined;
+    for (const job of this.jobs.values()) {
+      if (!newest || job.seq > newest.seq) newest = job;
+    }
+    this.latestId = newest?.jobId;
   }
 }
 
@@ -154,10 +186,37 @@ export class FileResultStore extends MemoryResultStore {
     }
   }
 
+  override async delete(jobId: string): Promise<boolean> {
+    const existed = await super.delete(jobId);
+    try {
+      await unlink(this.imagePath(jobId));
+    } catch {
+      // File may already be gone.
+    }
+    await this.flush();
+    return existed;
+  }
+
+  override async deleteAll(): Promise<number> {
+    const ids = [...this.jobs.keys()];
+    const count = await super.deleteAll();
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await unlink(this.imagePath(id));
+        } catch {
+          // File may already be gone.
+        }
+      }),
+    );
+    await this.flush();
+    return count;
+  }
+
   override async purgeExpired(now = Date.now()): Promise<number> {
     const doomed: string[] = [];
     for (const [id, job] of this.jobs) {
-      if (job.expiresAt <= now) doomed.push(id);
+      if (isJobExpired(job, now)) doomed.push(id);
     }
     const removed = await super.purgeExpired(now);
     await Promise.all(
@@ -183,7 +242,8 @@ export class FileResultStore extends MemoryResultStore {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as FileShape;
       const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
       for (const job of jobs) {
-        if (job?.jobId) this.jobs.set(job.jobId, job);
+        if (!job?.jobId) continue;
+        this.jobs.set(job.jobId, { ...job, expiresAt: 0 });
       }
       this.latestId = parsed.latestId;
       if (this.latestId && !this.jobs.has(this.latestId)) this.latestId = undefined;

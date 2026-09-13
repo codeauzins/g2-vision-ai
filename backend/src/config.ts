@@ -26,7 +26,7 @@ function num(name: string, fallback: number): number {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const ttlSeconds = num('RESULT_TTL_SECONDS', 3600);
+  const ttlSeconds = num('RESULT_TTL_SECONDS', 0);
   const maxMb = num('MAX_UPLOAD_MB', 8);
   return {
     port: num('PORT', 8787),

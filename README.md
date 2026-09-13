@@ -75,7 +75,7 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 | GET | `/admin/logs` | cookie | HTML fragment of recent HUD/server events |
 | POST | `/api/hud` | Bearer | Glasses HUD line for admin Logs |
 
-Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. The **Logs** section lists glasses HUD lines (Checking OpenAI key…, Ready, Analyzing…) and server events with timestamps. Edit the OpenAI system prompt on the same page; the next Action Button photo uses it. Previous photos and answers are listed below.
+Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. The **Logs** section lists glasses HUD lines (Checking OpenAI key…, Ready, Analyzing…) and server events with timestamps. Edit the OpenAI system prompt on the same page; the next Action Button photo uses it. Previous photos and answers are listed below, with **Delete** / **Delete all jobs**.
 
 `POST /api/analyze` accepts:
 
@@ -130,7 +130,7 @@ Cold start is not expected on a paid Render instance. The glasses app keeps the 
 | `G2_ADMIN_PASSWORD` | Render | Password for `/admin`. If unset, `G2_DEVICE_SECRET` is used |
 | `G2_DATA_DIR` | Render | `/var/data2` — answers, prompt settings, and optimized photos |
 | `PORT` | Render | Provided automatically |
-| `RESULT_TTL_SECONDS` | Render | Default 604800 (7 days); older tasks are deleted |
+| `RESULT_TTL_SECONDS` | Render | `0` keeps jobs forever (delete from `/admin`). Set a number of seconds only if you want auto-expiry |
 | `MAX_UPLOAD_MB` | Render | Default 8 |
 | `IMAGE_MAX_EDGE` | Render | Default 1600 |
 | `IMAGE_JPEG_QUALITY` | Render | Default 80 |
@@ -176,20 +176,20 @@ Full procedure: [docs/even-private-install.md](docs/even-private-install.md).
 | Answer replaced by Server waking up… | Poll timeout overwrote the HUD | Install Ask AI b-07; poll errors no longer replace a shown answer |
 | Same answer never updates | Deduped `jobId` | Take a new photo, or menu → Refresh |
 | Blank HUD | Bridge not awaited | App already awaits `waitForEvenAppBridge()` |
-| Memory empty after deploy | In-memory store | Expected on restart; take another photo |
+| Memory empty after deploy | No persistent disk | Mount a Render disk at `G2_DATA_DIR` (`/var/data2`); jobs are kept until you delete them in `/admin` |
 
 ## Security
 
 - `OPENAI_API_KEY` exists only as a Render env var and is never shown on `/admin`.
-- Optimized JPEGs and answers are stored on the Render disk for the admin history until `RESULT_TTL_SECONDS`.
+- Optimized JPEGs and answers stay on the Render disk until you delete them in `/admin`.
 - `/admin` is cookie-gated (`G2_ADMIN_PASSWORD` or `G2_DEVICE_SECRET`).
 - Logs record job ids, byte sizes, timings — not image bytes, not full answers.
-- Results expire (`RESULT_TTL_SECONDS`).
+- `RESULT_TTL_SECONDS=0` (default) does not auto-delete jobs.
 - Auth is a single personal bearer token (timing-safe compare). This is a one-user V1, not multi-tenant.
 
 ## Privacy
 
-Default behavior: optimized JPEGs and answers stay on the Render disk for `/admin` until they expire (`RESULT_TTL_SECONDS`). The OpenAI key is never on the glasses or Shortcut. Render still sends photos to OpenAI under [OpenAI's API data usage](https://developers.openai.com/api/docs/guides/images-vision).
+Default behavior: optimized JPEGs and answers stay on the Render disk for `/admin` until you delete them. The OpenAI key is never on the glasses or Shortcut. Render still sends photos to OpenAI under [OpenAI's API data usage](https://developers.openai.com/api/docs/guides/images-vision).
 
 ## Project Structure
 

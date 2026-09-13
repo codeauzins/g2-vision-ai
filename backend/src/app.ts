@@ -9,7 +9,7 @@ import { HttpError, httpError } from './errors.js';
 import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl } from './image.js';
 import { buildInstructions, parseMode, userPrompt } from './modes.js';
 import type { OpenAIKeyCheck, VisionClient } from './openai.js';
-import { MemoryResultStore, toJobView, type ResultStore } from './storage.js';
+import { MemoryResultStore, expiresAtFor, toJobView, type ResultStore } from './storage.js';
 import { MemoryPromptStore, type PromptStore } from './settings.js';
 import { MemoryActivityLog, type ActivityLog } from './activityLog.js';
 import { registerAdminRoutes } from './admin.js';
@@ -330,7 +330,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       question,
       createdAt,
       updatedAt: createdAt,
-      expiresAt: now() + config.resultTtlMs,
+      expiresAt: expiresAtFor(now(), config.resultTtlMs),
     });
     await store.saveImage(jobId, optimized.buffer);
 

@@ -400,6 +400,23 @@ describe('g2-vision-ai backend', () => {
 
     const anonImage = await app.inject({ method: 'GET', url: `/admin/image/${jobId}` });
     expect(anonImage.statusCode).toBe(401);
+
+    const deleted = await app.inject({
+      method: 'POST',
+      url: '/admin/jobs/delete',
+      headers: {
+        cookie: cookie.split(';')[0],
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `jobId=${jobId}`,
+    });
+    expect(deleted.statusCode).toBe(303);
+    const after = await app.inject({
+      method: 'GET',
+      url: '/admin',
+      headers: { cookie: cookie.split(';')[0] },
+    });
+    expect(after.body).not.toContain(jobId);
     await app.close();
   });
 
@@ -479,6 +496,22 @@ describe('memory store', () => {
     expect(await store.get('missing')).toBeUndefined();
     expect(await store.purgeExpired()).toBe(0);
   });
+
+  it('keeps jobs with expiresAt 0 forever', async () => {
+    const store = new MemoryResultStore();
+    await store.create({
+      jobId: 'keep',
+      status: 'complete',
+      seq: 1,
+      mode: 'general',
+      answer: 'ok',
+      createdAt: 't',
+      updatedAt: 't',
+      expiresAt: 0,
+    });
+    expect(await store.purgeExpired(Date.now() + 86_400_000 * 30)).toBe(0);
+    expect((await store.get('keep'))?.answer).toBe('ok');
+  });
 });
 
 describe('file store', () => {
@@ -520,5 +553,27 @@ describe('file store', () => {
     const second = new FileResultStore(file);
     const image = await second.getImage('11111111-1111-4111-8111-111111111111');
     expect(image?.bytes.toString()).toBe('jpeg-bytes');
+  });
+
+  it('deletes a job and its photo from disk', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'g2-del-'));
+    const file = join(dir, 'jobs.json');
+    const store = new FileResultStore(file);
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    await store.create({
+      jobId,
+      status: 'complete',
+      seq: 1,
+      mode: 'general',
+      answer: 'ok',
+      createdAt: 't',
+      updatedAt: 't',
+      expiresAt: 0,
+    });
+    await store.saveImage(jobId, Buffer.from('jpeg-bytes'));
+    expect(await store.delete(jobId)).toBe(true);
+    const second = new FileResultStore(file);
+    expect(await second.get(jobId)).toBeUndefined();
+    expect(await second.getImage(jobId)).toBeUndefined();
   });
 });
