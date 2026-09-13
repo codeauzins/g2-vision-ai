@@ -116,7 +116,7 @@ Action Button: Settings → Action Button → Shortcut → **G2 Vision AI**.
 
 ## Render
 
-Free web service, Node 22, health `/health`. Blueprint: `render.yaml`. Walkthrough: [docs/render-deployment.md](docs/render-deployment.md).
+Paid web service, Node 22, health `/health`. Blueprint: `render.yaml`. Walkthrough: [docs/render-deployment.md](docs/render-deployment.md).
 
 Cold start is not expected on a paid Render instance. The glasses app keeps the last answer if a poll request times out.
 
