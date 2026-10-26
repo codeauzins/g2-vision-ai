@@ -49,5 +49,5 @@ class PiConfig:
             poll_ms=max(250, _int("G2_PI_POLL_MS", 800)),
             keep_photos=_bool("G2_PI_KEEP_PHOTOS", False),
             photo_dir=os.environ.get("G2_PI_PHOTO_DIR") or "/tmp/g2-pi-cam",
-            jpeg_quality=max(50, min(95, _int("G2_PI_JPEG_QUALITY", 85))),
+            jpeg_quality=max(50, min(95, _int("G2_PI_JPEG_QUALITY", 70))),
         )

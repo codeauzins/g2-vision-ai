@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import sys
 import time
 import urllib.error
@@ -12,6 +13,13 @@ from typing import Any
 
 from camera import BurstCamera, CameraBusyError, Frame
 from config import PiConfig
+
+
+def _short(text: str, limit: int = 160) -> str:
+    one = " ".join(text.split())
+    if "<html" in one.lower() or one.lstrip().startswith("<!"):
+        return "HTML error page"
+    return one[:limit]
 
 
 def _request(
@@ -40,9 +48,24 @@ def _request(
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {err.code} {path}: {body[:240]}") from err
+        raise RuntimeError(f"HTTP {err.code} {path}: {_short(body)}") from err
     except urllib.error.URLError as err:
         raise RuntimeError(f"Network error {path}: {err.reason}") from err
+    except (TimeoutError, socket.timeout) as err:
+        raise RuntimeError(f"Timeout {path}") from err
+
+
+def _retry(fn, attempts: int = 4, delay: float = 2.0):
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as err:
+            last = err
+            print(f"retry {i + 1}/{attempts}: {err}", flush=True)
+            time.sleep(delay * (i + 1))
+    assert last is not None
+    raise last
 
 
 def poll_next(cfg: PiConfig) -> dict[str, Any] | None:
@@ -82,13 +105,18 @@ def upload_frames(cfg: PiConfig, job_id: str, frames: list[Frame]) -> dict[str, 
         )
     }
     body, content_type = _multipart(frames, extra)
-    return _request(
-        cfg,
-        "POST",
-        f"/api/pi/jobs/{job_id}/frames",
-        data=body,
-        content_type=content_type,
-        timeout=90,
+    print(f"uploading {job_id} bytes={len(body)}", flush=True)
+    return _retry(
+        lambda: _request(
+            cfg,
+            "POST",
+            f"/api/pi/jobs/{job_id}/frames",
+            data=body,
+            content_type=content_type,
+            timeout=120,
+        ),
+        attempts=4,
+        delay=3,
     )
 
 
@@ -138,7 +166,10 @@ def main() -> int:
             except CameraBusyError:
                 print("capture already running; skipping", flush=True)
             except Exception as err:
-                print(f"loop error: {err}", file=sys.stderr, flush=True)
+                msg = str(err)
+                print(f"loop error: {_short(msg)}", file=sys.stderr, flush=True)
+                extra = 4 if "name resolution" in msg.lower() or "timeout" in msg.lower() else 0
+                time.sleep(extra)
             time.sleep(cfg.poll_ms / 1000)
     except KeyboardInterrupt:
         return 0

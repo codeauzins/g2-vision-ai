@@ -51,8 +51,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maxBurstUploadBytes: num('MAX_BURST_UPLOAD_MB', 40) * 1024 * 1024,
     piDefaultFrames: num('PI_DEFAULT_FRAMES', 5),
     piMaxFrames: num('PI_MAX_FRAMES', 5),
-    piWaitMs: num('PI_WAIT_MS', 25_000),
-    piMaxMs: num('PI_MAX_MS', 70_000),
-    piStaleClaimMs: num('PI_STALE_CLAIM_MS', 40_000),
+    piWaitMs: num('PI_WAIT_MS', 45_000),
+    piMaxMs: num('PI_MAX_MS', 180_000),
+    piStaleClaimMs: num('PI_STALE_CLAIM_MS', 120_000),
   };
 }

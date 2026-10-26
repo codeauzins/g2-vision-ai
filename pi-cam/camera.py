@@ -42,6 +42,7 @@ class BurstCamera:
             main={"size": (self.cfg.width, self.cfg.height), "format": "RGB888"}
         )
         picam.configure(still)
+        picam.options["quality"] = self.cfg.jpeg_quality
         picam.set_controls(
             {
                 "AfMode": controls.AfModeEnum.Continuous,
