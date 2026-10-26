@@ -7,6 +7,7 @@ import { APP_VERSION } from './version.js';
 import type { PromptSettings, PromptStore } from './settings.js';
 import type { JobRecord, ResultStore } from './storage.js';
 import type { ActivityEntry, ActivityLog } from './activityLog.js';
+import type { AnalysisMode } from './modes.js';
 
 const COOKIE = 'g2_admin';
 const SESSION_TTL_SEC = 60 * 60 * 24 * 14;
@@ -59,6 +60,12 @@ export function registerAdminRoutes(
     prompts: PromptStore;
     activity: ActivityLog;
     now?: () => number;
+    queuePiCapture?: (input: {
+      mode: AnalysisMode;
+      deviceId?: string;
+      frames: number;
+      question?: string;
+    }) => Promise<{ jobId: string; frames: number; seq: number }>;
   },
 ): void {
   const { config, store, prompts, activity } = deps;
@@ -84,7 +91,11 @@ export function registerAdminRoutes(
     const settings = await prompts.get();
     const jobs = await store.list(1000);
     const logs = await activity.list(150);
-    return reply.type('text/html; charset=utf-8').send(dashboardPage({ config, settings, jobs, logs }));
+    const query = request.query as { capture?: string };
+    const captureId = typeof query.capture === 'string' ? query.capture.trim() : '';
+    return reply
+      .type('text/html; charset=utf-8')
+      .send(dashboardPage({ config, settings, jobs, logs, captureId }));
   });
 
   app.get('/admin/logs', async (request, reply) => {
@@ -117,6 +128,20 @@ export function registerAdminRoutes(
   app.post('/admin/logout', async (request, reply) => {
     reply.header('set-cookie', cookieHeader('', isSecure(request), true));
     return reply.redirect('/admin/login', 303);
+  });
+
+  app.post('/admin/capture', async (request, reply) => {
+    requireAdmin(request);
+    if (!deps.queuePiCapture) {
+      throw httpError(503, 'unavailable', 'Pi capture is not enabled on this server.');
+    }
+    const queued = await deps.queuePiCapture({
+      mode: 'general',
+      deviceId: 'admin',
+      frames: config.piDefaultFrames,
+    });
+    request.log.info({ jobId: queued.jobId, frames: queued.frames }, 'admin test capture');
+    return reply.redirect(`/admin?capture=${encodeURIComponent(queued.jobId)}`, 303);
   });
 
   app.post('/admin/settings', async (request, reply) => {
@@ -245,8 +270,13 @@ function dashboardPage(input: {
   settings: PromptSettings;
   jobs: JobRecord[];
   logs: ActivityEntry[];
+  captureId?: string;
 }): string {
   const { config, settings, jobs } = input;
+  const waiting = jobs.some((job) => job.status === 'processing');
+  const notice = input.captureId
+    ? `<p>Queued job <code>${esc(input.captureId)}</code>. This page reloads while the Pi is capturing.</p>`
+    : '';
   const jobsHtml = jobs.length
     ? jobs
         .map((job) => {
@@ -254,7 +284,7 @@ function dashboardPage(input: {
             ? `<img src="/admin/image/${esc(job.jobId)}" alt="Photo ${esc(job.jobId.slice(0, 8))}" />`
             : `<p class="muted">No photo stored</p>`;
           const body = job.answer || job.error || '(still analyzing)';
-          return `<article class="card job">
+          return `<article class="card job" data-status="${esc(job.status)}">
             <div>${img}</div>
             <div>
               <p><strong>${esc(job.status)}</strong> · ${esc(job.mode)} · seq ${job.seq}<br />
@@ -268,7 +298,7 @@ function dashboardPage(input: {
           </article>`;
         })
         .join('')
-    : `<p class="muted">No tasks yet. Take a photo with the Action Button after this deploy.</p>`;
+    : `<p class="muted">No tasks yet. Use Test Pi capture or the Watch Shortcut.</p>`;
 
   return shell(
     'Ask AI admin',
@@ -277,6 +307,16 @@ function dashboardPage(input: {
        <form method="post" action="/admin/logout"><button class="secondary" type="submit">Log out</button></form>
      </div>
      <p class="muted">${esc(APP_VERSION)} · model ${esc(config.openaiModel)} · OpenAI key ${config.openaiApiKey ? 'set' : 'MISSING'} · disk ${esc(config.dataDir || '(memory only)')}</p>
+
+     <section class="card">
+       <h2>Raspberry Pi camera</h2>
+       <p class="muted">Queues the same 5-frame burst as the Watch Shortcut. The Pi must be polling this Render service.</p>
+       ${notice}
+       <form method="post" action="/admin/capture">
+         <p><button type="submit">Test Pi capture</button></p>
+       </form>
+     </section>
+     ${waiting ? '<script>setTimeout(function () { location.reload(); }, 4000);</script>' : ''}
 
      <section class="card">
        <h2>Logs</h2>

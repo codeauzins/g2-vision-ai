@@ -72,11 +72,12 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 | GET | `/api/result/:jobId` | Bearer | Job status / answer |
 | GET | `/api/latest` | Bearer | Newest job (or `{ result: null }`) |
 | GET | `/api/history` | Bearer | Last 20 complete/error jobs for the glasses |
-| GET | `/admin` | cookie | Password page: Logs, prompt editor, photo history |
+| GET | `/admin` | cookie | Password page: Logs, Test Pi capture, prompt editor, photo history |
+| POST | `/admin/capture` | cookie | Queue a 5-frame Pi burst (same as Watch `/api/capture`) |
 | GET | `/admin/logs` | cookie | HTML fragment of recent HUD/server events |
 | POST | `/api/hud` | Bearer | Glasses HUD line for admin Logs |
 
-Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. The **Logs** section lists glasses HUD lines (Checking OpenAI key…, Ready, Analyzing…) and server events with timestamps. Edit the OpenAI system prompt on the same page; the next Action Button photo uses it. Previous photos and answers are listed below, with **Delete** / **Delete all jobs**.
+Open the admin UI at `https://g2-vision-ai.onrender.com/admin`. Password is `G2_ADMIN_PASSWORD`, or `G2_DEVICE_SECRET` if that is unset. Use **Test Pi capture** to queue a 5-frame burst without the Watch Shortcut. The **Logs** section lists glasses HUD lines (Checking OpenAI key…, Ready, Analyzing…) and server events with timestamps. Edit the OpenAI system prompt on the same page; the next photo uses it. Previous photos and answers are listed below, with **Delete** / **Delete all jobs**.
 
 `POST /api/analyze` accepts:
 

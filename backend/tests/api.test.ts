@@ -525,6 +525,45 @@ describe('g2-vision-ai backend', () => {
     await app.close();
   });
 
+  it('queues a Pi capture from the admin Test button', async () => {
+    const { app } = await makeApp();
+    const anon = await app.inject({ method: 'POST', url: '/admin/capture' });
+    expect(anon.statusCode).toBe(401);
+    const login = await app.inject({
+      method: 'POST',
+      url: '/admin/login',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `password=${SECRET}`,
+    });
+    const cookie = String(login.headers['set-cookie'] || '').split(';')[0];
+    const dash = await app.inject({ method: 'GET', url: '/admin', headers: { cookie } });
+    expect(dash.body).toContain('Test Pi capture');
+    const queued = await app.inject({
+      method: 'POST',
+      url: '/admin/capture',
+      headers: { cookie },
+    });
+    expect(queued.statusCode).toBe(303);
+    const location = String(queued.headers.location || '');
+    expect(location).toMatch(/^\/admin\?capture=[0-9a-f-]{36}$/i);
+    const jobId = location.split('=')[1];
+    const claimed = await app.inject({
+      method: 'GET',
+      url: '/api/pi/next',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(claimed.json().job.jobId).toBe(jobId);
+    expect(claimed.json().job.frames).toBe(5);
+    const after = await app.inject({
+      method: 'GET',
+      url: location,
+      headers: { cookie },
+    });
+    expect(after.body).toContain(jobId);
+    expect(after.body).toContain('Queued job');
+    await app.close();
+  });
+
   it('analyzes a five-frame Pi burst in one OpenAI call', async () => {
     const seen: Array<{ urls: number; text: string }> = [];
     const { app } = await makeApp({

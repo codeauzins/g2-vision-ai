@@ -244,6 +244,39 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return reply.send({ ok: true });
   });
 
+  async function queuePiCapture(input: {
+    mode: ReturnType<typeof parseMode>;
+    deviceId?: string;
+    frames: number;
+    question?: string;
+  }): Promise<{ jobId: string; frames: number; seq: number }> {
+    await store.purgeExpired(now());
+    await expireStaleCaptures();
+    seq += 1;
+    const jobId = newJobId();
+    const createdAt = new Date(now()).toISOString();
+    await store.create({
+      jobId,
+      status: 'processing',
+      seq,
+      mode: input.mode,
+      deviceId: input.deviceId,
+      question: input.question,
+      createdAt,
+      updatedAt: createdAt,
+      expiresAt: expiresAtFor(now(), config.resultTtlMs),
+    });
+    captures.enqueue({
+      jobId,
+      frames: input.frames,
+      mode: input.mode,
+      question: input.question,
+      createdAt: now(),
+    });
+    note('server', 'Waiting for camera…', `${input.frames} frames · job ${jobId.slice(0, 8)}`);
+    return { jobId, frames: input.frames, seq };
+  }
+
   async function expireStaleCaptures(): Promise<void> {
     for (const ticket of captures.stale(now(), config.piWaitMs, config.piMaxMs)) {
       captures.remove(ticket.jobId);
@@ -260,8 +293,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.post('/api/capture', async (request, reply) => {
-    await store.purgeExpired(now());
-    await expireStaleCaptures();
     const query = request.query as Record<string, unknown>;
     const body = (request.body ?? {}) as Record<string, unknown>;
     let mode = parseMode(asString(query.mode) ?? asString(body.mode));
@@ -291,28 +322,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     requireAuth(request, formToken ?? asString(body.token) ?? asString(body.secret));
 
-    seq += 1;
-    const jobId = newJobId();
-    const createdAt = new Date(now()).toISOString();
-    await store.create({
-      jobId,
-      status: 'processing',
-      seq,
-      mode,
-      deviceId,
-      question,
-      createdAt,
-      updatedAt: createdAt,
-      expiresAt: expiresAtFor(now(), config.resultTtlMs),
-    });
-    captures.enqueue({ jobId, frames, mode, question, createdAt: now() });
-    request.log.info({ jobId, seq, mode, frames, deviceId }, 'capture requested');
-    note('server', 'Waiting for camera…', `${frames} frames · job ${jobId.slice(0, 8)}`);
+    const queued = await queuePiCapture({ mode, deviceId, frames, question });
+    request.log.info({ jobId: queued.jobId, seq: queued.seq, mode, frames, deviceId }, 'capture requested');
     return reply.status(202).send({
       ok: true,
-      jobId,
+      jobId: queued.jobId,
       status: 'processing',
-      frames,
+      frames: queued.frames,
     });
   });
 
@@ -569,7 +585,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return { ok: true, results: jobs.map(toJobView) };
   });
 
-  registerAdminRoutes(app, { config, store, prompts, activity, now });
+  registerAdminRoutes(app, { config, store, prompts, activity, now, queuePiCapture });
 
   async function runKeyCheck(): Promise<OpenAIKeyCheck> {
     if (!config.openaiApiKey) {
