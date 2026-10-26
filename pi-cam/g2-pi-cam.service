@@ -1,0 +1,16 @@
+[Unit]
+Description=G2 Vision AI Raspberry Pi camera agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/g2-vision-ai/pi-cam
+EnvironmentFile=/etc/g2-pi-cam.env
+ExecStart=/usr/bin/python3 /home/pi/g2-vision-ai/pi-cam/agent.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

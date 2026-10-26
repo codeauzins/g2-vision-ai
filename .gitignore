@@ -8,3 +8,7 @@ coverage/
 backend/tmp/
 *.log
 .vite/
+__pycache__/
+*.pyc
+pi-cam/.venv/
+/tmp/g2-pi-cam/

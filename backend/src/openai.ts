@@ -2,7 +2,8 @@ import OpenAI from 'openai';
 import { buildInstructions, userPrompt, type AnalysisMode } from './modes.js';
 
 export type VisionAnalyzeInput = {
-  imageDataUrl: string;
+  imageDataUrl?: string;
+  imageDataUrls?: string[];
   mode: AnalysisMode;
   question?: string;
   instructions?: string;
@@ -57,6 +58,11 @@ export class OpenAIVisionClient implements VisionClient {
   }
 
   async analyze(input: VisionAnalyzeInput): Promise<string> {
+    const urls = (input.imageDataUrls?.filter(Boolean) ?? []).concat(input.imageDataUrl ? [input.imageDataUrl] : []);
+    const unique = [...new Set(urls)];
+    if (!unique.length) {
+      throw new Error('No images were provided for analysis');
+    }
     try {
       const response = await this.client.responses.create({
         model: this.model,
@@ -66,7 +72,7 @@ export class OpenAIVisionClient implements VisionClient {
             role: 'user',
             content: [
               { type: 'input_text', text: input.userText ?? userPrompt(input.mode, input.question) },
-              { type: 'input_image', image_url: input.imageDataUrl, detail: 'high' },
+              ...unique.map((image_url) => ({ type: 'input_image' as const, image_url, detail: 'high' as const })),
             ],
           },
         ],
@@ -93,7 +99,7 @@ export function createOpenAIClient(apiKey: string, baseUrl: string, model: strin
     new OpenAI({
       apiKey,
       baseURL: baseUrl,
-      timeout: 45_000,
+      timeout: 90_000,
     }),
     model,
     apiKey,

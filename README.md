@@ -1,8 +1,8 @@
 # G2 Vision AI
 
-Action Button photo → Render backend → OpenAI vision → Even Realities G2 HUD.
+Watch / Action Button → Render → Raspberry Pi Camera Module 3 (5-frame burst) → OpenAI vision → Apple Watch + Even Realities G2 HUD.
 
-Press the iPhone Action Button, take a photo, look at the glasses. The Apple Shortcut only captures and uploads. Analysis and formatting happen on the server. The Even Hub app **Ask AI** polls for the latest result and paginates long answers across the 576×288 G2 display.
+The Shortcut does not take the photo. It asks Render to capture. The Pi polls Render, shoots five JPEGs, and uploads them. OpenAI reads all five frames and uses the most legible text. The Shortcut polls `GET /api/result/:jobId` for the Watch. The Even Hub app **Ask AI** still polls `GET /api/latest` for the glasses.
 
 ## Overview
 
@@ -18,23 +18,21 @@ The OpenAI API key never leaves Render. The Shortcut and glasses app share only 
 ## Architecture
 
 ```text
-[iPhone Action Button]
+[Apple Watch / Action Button Shortcut]
+        |  POST /api/capture
+        v
+[Render  Fastify]
+        |  GET /api/pi/next (Pi polls)
+        v
+[Raspberry Pi 4 + Camera Module 3]
+  5 JPEGs ~300ms apart → POST /api/pi/jobs/:id/frames
         |
         v
-[Apple Shortcut]
-  Take Photo → Convert to JPEG → POST /api/analyze
-        |
-        |  HTTPS + Bearer G2_DEVICE_SECRET
-        v
-[Render backend  Node/Fastify]
-  optimize image → OpenAI Responses vision → memory job store
-        ^
-        |  GET /api/latest  (poll 1–2s)
-        |
-[Even Hub app "Ask AI"]
-        |
-        v
-[Even Realities G2  576×288 HUD, paged text]
+[Render → OpenAI Responses, 5 images]
+        |                    |
+        | GET /api/result    | GET /api/latest
+        v                    v
+[Apple Watch]         [Ask AI → G2 HUD]
 ```
 
 V1 uses in-memory job storage. A Render free-tier restart or spin-down clears pending results. The store is behind a `ResultStore` interface so Redis/Postgres can replace it later.
@@ -67,7 +65,10 @@ Node.js 22+, TypeScript, Fastify. See [docs/local-development.md](docs/local-dev
 | --- | --- | --- | --- |
 | GET | `/health` | no | Render health check (does not call OpenAI) |
 | GET | `/api/openai` | Bearer | Live OpenAI API key test (cached 30s) |
-| POST | `/api/analyze` | Bearer | Upload image, start job (202) |
+| POST | `/api/capture` | Bearer | Watch/Shortcut: queue a Pi 5-frame burst (202) |
+| GET | `/api/pi/next` | Bearer | Pi claims the next capture job |
+| POST | `/api/pi/jobs/:jobId/frames` | Bearer | Pi uploads JPEG frames, then OpenAI runs |
+| POST | `/api/analyze` | Bearer | Optional: upload one iPhone image, start job (202) |
 | GET | `/api/result/:jobId` | Bearer | Job status / answer |
 | GET | `/api/latest` | Bearer | Newest job (or `{ result: null }`) |
 | GET | `/api/history` | Bearer | Last 20 complete/error jobs for the glasses |
@@ -110,7 +111,7 @@ Private install: [docs/even-private-install.md](docs/even-private-install.md). P
 
 ## Apple Shortcut
 
-The Shortcut must **only** take a photo and upload it. Do not call OpenAI, split text, or send iMessage. Step-by-step: [docs/apple-shortcut.md](docs/apple-shortcut.md).
+Watch/Action Button: POST `/api/capture`, then poll `/api/result/:jobId` until `complete`. Do not call OpenAI. Steps: [docs/apple-shortcut.md](docs/apple-shortcut.md). Pi setup: [docs/raspberry-pi.md](docs/raspberry-pi.md).
 
 Action Button: Settings → Action Button → Shortcut → **G2 Vision AI**.
 

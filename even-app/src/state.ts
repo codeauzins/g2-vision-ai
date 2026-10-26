@@ -30,6 +30,7 @@ export function shouldApplySameJob(kind: ScreenKind): boolean {
 export function glassesErrorFromJob(job: JobView): string {
   if (job.errorCode === 'openai_timeout') return 'AI timed out. Try another photo.';
   if (job.errorCode === 'openai_auth') return 'OpenAI key rejected. Check Render OPENAI_API_KEY.';
+  if (job.errorCode === 'camera_timeout') return 'Camera did not respond.';
   if (job.error) return job.error;
   return 'AI could not analyze this photo.';
 }

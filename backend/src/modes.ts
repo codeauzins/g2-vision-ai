@@ -39,6 +39,10 @@ export function parseMode(value: unknown): AnalysisMode {
 
 export const DEFAULT_USER_PROMPT = 'What is in this photo? Give me the useful answer for glasses.';
 
+export const BURST_USER_PROMPT = `These photographs are a burst of the same scene a few hundred milliseconds apart.
+Use the frame where text is most legible. Cross-check names, numbers, prices, and labels across frames.
+Give one concise answer. Do not describe each frame separately.`;
+
 export function buildInstructions(
   mode: AnalysisMode,
   question?: string,
@@ -70,4 +74,10 @@ export function userPrompt(
     default:
       return defaultUserPrompt.trim() || DEFAULT_USER_PROMPT;
   }
+}
+
+export function burstUserPrompt(mode: AnalysisMode, question?: string, defaultUserPrompt = DEFAULT_USER_PROMPT): string {
+  const asked = question?.trim();
+  if (asked) return `${BURST_USER_PROMPT}\n\nThe wearer asked: ${asked}`;
+  return `${BURST_USER_PROMPT}\n\n${userPrompt(mode, undefined, defaultUserPrompt)}`;
 }

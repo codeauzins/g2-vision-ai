@@ -13,6 +13,12 @@ export type AppConfig = {
   rateLimitWindowMs: number;
   /** Directory for JSON jobs, prompt settings, and optimized JPEGs. Empty = memory. */
   dataDir: string;
+  maxBurstUploadBytes: number;
+  piDefaultFrames: number;
+  piMaxFrames: number;
+  piWaitMs: number;
+  piMaxMs: number;
+  piStaleClaimMs: number;
 };
 
 function num(name: string, fallback: number): number {
@@ -42,5 +48,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitMax: num('RATE_LIMIT_MAX', 120),
     rateLimitWindowMs: num('RATE_LIMIT_WINDOW_MS', 60_000),
     dataDir: (env.G2_DATA_DIR || '').trim(),
+    maxBurstUploadBytes: num('MAX_BURST_UPLOAD_MB', 40) * 1024 * 1024,
+    piDefaultFrames: num('PI_DEFAULT_FRAMES', 5),
+    piMaxFrames: num('PI_MAX_FRAMES', 5),
+    piWaitMs: num('PI_WAIT_MS', 25_000),
+    piMaxMs: num('PI_MAX_MS', 70_000),
+    piStaleClaimMs: num('PI_STALE_CLAIM_MS', 40_000),
   };
 }

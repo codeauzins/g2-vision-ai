@@ -1,0 +1,4 @@
+# On Raspberry Pi OS, install the camera stack from apt instead of pip:
+#   sudo apt install -y python3-picamera2 python3-libcamera
+# This file is empty on purpose so `pip install -r requirements.txt` is a no-op
+# on machines without Picamera2 wheels.

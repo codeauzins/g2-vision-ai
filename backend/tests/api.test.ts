@@ -487,6 +487,116 @@ describe('g2-vision-ai backend', () => {
     expect(res.json().code).toBe('unsupported_type');
     await app.close();
   });
+
+  it('creates a Pi capture job the camera agent can claim', async () => {
+    const { app } = await makeApp();
+    const denied = await app.inject({ method: 'POST', url: '/api/capture' });
+    expect(denied.statusCode).toBe(401);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/capture',
+      headers: {
+        authorization: `Bearer ${SECRET}`,
+        'content-type': 'application/json',
+      },
+      payload: { mode: 'ocr', device_id: 'watch', frames: 5 },
+    });
+    expect(created.statusCode).toBe(202);
+    const jobId = String(created.json().jobId);
+    expect(created.json().frames).toBe(5);
+    const empty = await app.inject({
+      method: 'GET',
+      url: '/api/pi/next',
+    });
+    expect(empty.statusCode).toBe(401);
+    const claimed = await app.inject({
+      method: 'GET',
+      url: '/api/pi/next',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(claimed.json().job.jobId).toBe(jobId);
+    expect(claimed.json().job.frames).toBe(5);
+    const idle = await app.inject({
+      method: 'GET',
+      url: '/api/pi/next',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(idle.json().job).toBeNull();
+    await app.close();
+  });
+
+  it('analyzes a five-frame Pi burst in one OpenAI call', async () => {
+    const seen: Array<{ urls: number; text: string }> = [];
+    const { app } = await makeApp({
+      analyze: async (input) => {
+        seen.push({
+          urls: input.imageDataUrls?.length ?? (input.imageDataUrl ? 1 : 0),
+          text: input.userText || '',
+        });
+        return 'Menu specials from the sharpest frame.';
+      },
+    });
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/capture?token=' + SECRET,
+      headers: { 'content-type': 'application/json' },
+      payload: { device_id: 'watch' },
+    });
+    const jobId = String(created.json().jobId);
+    await app.inject({
+      method: 'GET',
+      url: '/api/pi/next',
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    const form = new FormData();
+    for (let i = 0; i < 5; i += 1) {
+      form.append('frame', new Blob([await jpeg(48)], { type: 'image/jpeg' }), `f${i}.jpg`);
+    }
+    const uploaded = await app.inject({
+      method: 'POST',
+      url: `/api/pi/jobs/${jobId}/frames`,
+      headers: { authorization: `Bearer ${SECRET}` },
+      payload: form,
+    });
+    expect(uploaded.statusCode).toBe(202);
+    const done = await waitForJob(app, jobId);
+    expect(done.json().status).toBe('complete');
+    expect(done.json().answer).toContain('sharpest frame');
+    expect(seen[0]?.urls).toBe(5);
+    expect(seen[0]?.text).toMatch(/burst/i);
+    const tooFew = await app.inject({
+      method: 'POST',
+      url: `/api/pi/jobs/${jobId}/frames`,
+      headers: { authorization: `Bearer ${SECRET}` },
+      payload: form,
+    });
+    expect(tooFew.statusCode).toBe(409);
+    await app.close();
+  });
+
+  it('times out if the Raspberry Pi never claims the job', async () => {
+    let t = 1_000;
+    const { app } = await makeApp({ now: () => t });
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/capture',
+      headers: {
+        authorization: `Bearer ${SECRET}`,
+        'content-type': 'application/json',
+      },
+      payload: { device_id: 'watch' },
+    });
+    const jobId = String(created.json().jobId);
+    t = 1_000 + 30_000;
+    const result = await app.inject({
+      method: 'GET',
+      url: `/api/result/${jobId}`,
+      headers: { authorization: `Bearer ${SECRET}` },
+    });
+    expect(result.json().status).toBe('error');
+    expect(result.json().errorCode).toBe('camera_timeout');
+    await app.close();
+  });
 });
 
 describe('memory store', () => {

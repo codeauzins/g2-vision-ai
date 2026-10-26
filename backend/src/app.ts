@@ -7,8 +7,9 @@ import type { AppConfig } from './config.js';
 import { requestToken, newJobId, secretsEqual } from './auth.js';
 import { HttpError, httpError } from './errors.js';
 import { ImageError, isAllowedMime, normalizeMime, optimizeForVision, toDataUrl } from './image.js';
-import { buildInstructions, parseMode, userPrompt } from './modes.js';
+import { burstUserPrompt, buildInstructions, parseMode, userPrompt } from './modes.js';
 import type { OpenAIKeyCheck, VisionClient } from './openai.js';
+import { CaptureQueue, clampFrameCount } from './captureQueue.js';
 import { MemoryResultStore, expiresAtFor, toJobView, type ResultStore } from './storage.js';
 import { MemoryPromptStore, type PromptStore } from './settings.js';
 import { MemoryActivityLog, type ActivityLog } from './activityLog.js';
@@ -37,6 +38,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const prompts = deps.prompts ?? new MemoryPromptStore();
   const activity = deps.activity ?? new MemoryActivityLog(deps.now ?? Date.now);
   const now = deps.now ?? Date.now;
+  const captures = new CaptureQueue();
   let seq = 0;
   const KEY_CHECK_TTL_MS = 30_000;
   const KEY_CHECK_WAIT_MS = 5_000;
@@ -60,7 +62,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         remove: true,
       },
     },
-    bodyLimit: config.maxUploadBytes,
+    bodyLimit: Math.max(config.maxUploadBytes, config.maxBurstUploadBytes),
   });
 
   await app.register(cors, {
@@ -81,7 +83,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         path === '/api/latest' ||
         path === '/api/history' ||
         path === '/api/openai' ||
-        path === '/api/hud'
+        path === '/api/hud' ||
+        path === '/api/pi/next' ||
+        path.startsWith('/api/result/')
       );
     },
   });
@@ -89,8 +93,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(multipart, {
     limits: {
       fileSize: config.maxUploadBytes,
-      files: 1,
-      fields: 8,
+      files: 8,
+      fields: 16,
     },
   });
 
@@ -240,6 +244,165 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return reply.send({ ok: true });
   });
 
+  async function expireStaleCaptures(): Promise<void> {
+    for (const ticket of captures.stale(now(), config.piWaitMs, config.piMaxMs)) {
+      captures.remove(ticket.jobId);
+      const job = await store.get(ticket.jobId);
+      if (job && job.status === 'processing' && !job.answer) {
+        await store.update(ticket.jobId, {
+          status: 'error',
+          errorCode: 'camera_timeout',
+          error: 'Camera did not respond. Check the Raspberry Pi is online.',
+        });
+        note('server', 'Camera did not respond', `job ${ticket.jobId.slice(0, 8)}`);
+      }
+    }
+  }
+
+  app.post('/api/capture', async (request, reply) => {
+    await store.purgeExpired(now());
+    await expireStaleCaptures();
+    const query = request.query as Record<string, unknown>;
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    let mode = parseMode(asString(query.mode) ?? asString(body.mode));
+    let question = asString(query.question) ?? asString(body.question);
+    let deviceId =
+      asString(query.device_id) ||
+      asString(query.deviceId) ||
+      asString(body.device_id) ||
+      asString(body.deviceId) ||
+      asString(request.headers['x-device-id']) ||
+      'watch';
+    let frames = clampFrameCount(
+      asString(query.frames) ?? asString(body.frames) ?? config.piDefaultFrames,
+      config.piDefaultFrames,
+      config.piMaxFrames,
+    );
+    let formToken: string | undefined;
+
+    if (request.isMultipart()) {
+      const parsed = await readMultipart(request);
+      mode = parseMode(parsed.fields.mode ?? mode);
+      question = parsed.fields.question ?? question;
+      deviceId = parsed.fields.device_id ?? parsed.fields.deviceId ?? deviceId;
+      frames = clampFrameCount(parsed.fields.frames, frames, config.piMaxFrames);
+      formToken = parsed.fields.token ?? parsed.fields.secret ?? parsed.fields.authorization;
+    }
+
+    requireAuth(request, formToken ?? asString(body.token) ?? asString(body.secret));
+
+    seq += 1;
+    const jobId = newJobId();
+    const createdAt = new Date(now()).toISOString();
+    await store.create({
+      jobId,
+      status: 'processing',
+      seq,
+      mode,
+      deviceId,
+      question,
+      createdAt,
+      updatedAt: createdAt,
+      expiresAt: expiresAtFor(now(), config.resultTtlMs),
+    });
+    captures.enqueue({ jobId, frames, mode, question, createdAt: now() });
+    request.log.info({ jobId, seq, mode, frames, deviceId }, 'capture requested');
+    note('server', 'Waiting for camera…', `${frames} frames · job ${jobId.slice(0, 8)}`);
+    return reply.status(202).send({
+      ok: true,
+      jobId,
+      status: 'processing',
+      frames,
+    });
+  });
+
+  app.get('/api/pi/next', async (request) => {
+    requireAuth(request);
+    await expireStaleCaptures();
+    const ticket = captures.claim(now(), config.piStaleClaimMs);
+    if (!ticket) return { ok: true, job: null };
+    note('server', 'Pi claimed capture', `job ${ticket.jobId.slice(0, 8)}`);
+    return {
+      ok: true,
+      job: {
+        jobId: ticket.jobId,
+        frames: ticket.frames,
+        mode: ticket.mode,
+        question: ticket.question,
+      },
+    };
+  });
+
+  app.post('/api/pi/jobs/:jobId/frames', async (request, reply) => {
+    requireAuth(request);
+    await expireStaleCaptures();
+    const { jobId } = request.params as { jobId: string };
+    const job = await store.get(jobId);
+    if (!job) throw httpError(404, 'not_found', 'No capture job for that id.');
+    if (job.status !== 'processing') {
+      throw httpError(409, 'job_finished', 'That capture job is already finished.');
+    }
+    const claimed = captures.getClaimed(jobId);
+    const expected = claimed?.frames ?? config.piDefaultFrames;
+
+    if (!request.isMultipart()) {
+      throw httpError(400, 'missing_image', 'Upload JPEG frames as multipart files named frame.');
+    }
+    const parsed = await readMultipartFrames(request);
+    if (parsed.frames.length < expected) {
+      throw httpError(400, 'missing_frames', `Expected ${expected} JPEG frames, got ${parsed.frames.length}.`);
+    }
+
+    const optimized = [];
+    for (const frame of parsed.frames.slice(0, expected)) {
+      if (frame.buffer.length > config.maxUploadBytes) {
+        throw httpError(413, 'too_large', 'A burst frame is too large');
+      }
+      const mime = normalizeMime(frame.mimeType, frame.filename);
+      if (mime === 'image/heic' || mime === 'image/heif') {
+        throw httpError(400, 'unsupported_type', 'HEIC is not accepted. Upload JPEG frames.');
+      }
+      if (!isAllowedMime(mime) && mime !== 'application/octet-stream') {
+        throw httpError(400, 'unsupported_type', 'Use JPEG, PNG, or WebP.');
+      }
+      try {
+        optimized.push(
+          await optimizeForVision(frame.buffer, {
+            maxEdge: config.imageMaxEdge,
+            jpegQuality: config.imageJpegQuality,
+          }),
+        );
+      } catch (err) {
+        if (err instanceof ImageError) throw httpError(400, err.code, err.message);
+        throw err;
+      }
+      frame.buffer.fill(0);
+    }
+
+    captures.finish(jobId);
+    await store.saveImage(jobId, optimized[0]!.buffer);
+    note('server', 'Pi burst received', `${optimized.length} frames · job ${jobId.slice(0, 8)}`);
+    request.log.info({ jobId, frames: optimized.length }, 'pi burst received');
+
+    const dataUrls = optimized.map((img) => toDataUrl(img.mimeType, img.buffer));
+    void processJob({
+      jobId,
+      dataUrls,
+      mode: parseMode(job.mode),
+      question: job.question,
+      vision,
+      store,
+      prompts,
+      log: request.log,
+      note,
+      burst: true,
+    }).finally(() => {
+      for (const img of optimized) img.buffer.fill(0);
+    });
+
+    return reply.status(202).send({ ok: true, jobId, status: 'processing', frames: optimized.length });
+  });
+
   app.post('/api/analyze', async (request, reply) => {
     const started = now();
     request.log.info(
@@ -353,7 +516,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     void processJob({
       jobId,
-      dataUrl: toDataUrl(optimized.mimeType, optimized.buffer),
+      dataUrls: [toDataUrl(optimized.mimeType, optimized.buffer)],
       mode,
       question,
       vision,
@@ -375,6 +538,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/result/:jobId', async (request) => {
     requireAuth(request);
     await store.purgeExpired(now());
+    await expireStaleCaptures();
     const { jobId } = request.params as { jobId: string };
     const job = await store.get(jobId);
     if (!job) {
@@ -386,6 +550,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/latest', async (request) => {
     requireAuth(request);
     await store.purgeExpired(now());
+    await expireStaleCaptures();
     const job = await store.latest();
     if (!job) {
       request.log.debug({ latest: null }, 'latest empty');
@@ -419,7 +584,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return Promise.race([
       vision.checkApiKey(),
       new Promise<OpenAIKeyCheck>((resolve) => {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           resolve({
             ok: true,
             model: config.openaiModel,
@@ -427,6 +592,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             code: 'openai_slow',
           });
         }, KEY_CHECK_WAIT_MS);
+        timer.unref();
       }),
     ]);
   }
@@ -436,7 +602,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
 async function processJob(input: {
   jobId: string;
-  dataUrl: string;
+  dataUrls: string[];
   mode: ReturnType<typeof parseMode>;
   question?: string;
   vision: VisionClient;
@@ -448,16 +614,19 @@ async function processJob(input: {
     warn: (obj: object, msg: string) => void;
   };
   note: (source: 'server' | 'glasses', message: string, detail?: string) => void;
+  burst?: boolean;
 }): Promise<void> {
   const started = Date.now();
-  input.log.info({ jobId: input.jobId, mode: input.mode }, 'openai started');
+  input.log.info({ jobId: input.jobId, mode: input.mode, frames: input.dataUrls.length }, 'openai started');
   input.note('server', 'Analyzing…', `job ${input.jobId.slice(0, 8)}`);
   try {
     const settings = await input.prompts.get();
     const instructions = buildInstructions(input.mode, input.question, settings.systemPrompt);
-    const userText = userPrompt(input.mode, input.question, settings.userPrompt);
+    const userText = input.burst
+      ? burstUserPrompt(input.mode, input.question, settings.userPrompt)
+      : userPrompt(input.mode, input.question, settings.userPrompt);
     const answer = await input.vision.analyze({
-      imageDataUrl: input.dataUrl,
+      imageDataUrls: input.dataUrls,
       mode: input.mode,
       question: input.question,
       instructions,
@@ -549,6 +718,40 @@ async function readMultipart(request: {
     }
   }
   return { image, fields };
+}
+
+async function readMultipartFrames(request: {
+  isMultipart: () => boolean;
+  parts: () => AsyncIterable<{
+    type: string;
+    fieldname: string;
+    file?: NodeJS.ReadableStream;
+    filename?: string;
+    mimetype?: string;
+    value?: unknown;
+  }>;
+}): Promise<{ frames: IncomingImage[]; fields: Record<string, string> }> {
+  const fields: Record<string, string> = {};
+  const frames: IncomingImage[] = [];
+  for await (const part of request.parts()) {
+    if (part.type === 'file' && part.file) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const name = part.fieldname.toLowerCase();
+      if (name.startsWith('frame') || name === 'image' || name === 'photo' || name === 'file') {
+        frames.push({
+          buffer: Buffer.concat(chunks),
+          mimeType: part.mimetype || 'application/octet-stream',
+          filename: part.filename,
+        });
+      }
+    } else if (part.fieldname && part.value != null) {
+      fields[part.fieldname.toLowerCase()] = String(part.value);
+    }
+  }
+  return { frames, fields };
 }
 
 function asString(value: unknown): string | undefined {

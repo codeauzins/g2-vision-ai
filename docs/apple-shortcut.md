@@ -1,13 +1,54 @@
-# Apple Shortcut + Action Button
+# Apple Shortcut + Apple Watch
 
-The Shortcut does two things only:
+Primary path: **Watch or iPhone Shortcut asks Render to capture**. The Raspberry Pi takes five photos. Render sends all five to OpenAI. The Shortcut polls until the answer is ready and shows it on the Watch. The G2 HUD still updates via `GET /api/latest`.
 
-1. Take a photo.
-2. Upload it to your Render backend.
+The Shortcut does **not** call OpenAI and does **not** talk to the Pi on the LAN.
 
-It does **not** call OpenAI, format text, paginate, send iMessage, or show the answer. The answer appears on the G2 via the Even Hub app.
+Replace `https://g2-vision-ai.onrender.com` if your URL differs. Use the same hex as `G2_DEVICE_SECRET`.
 
-Replace `https://YOUR-SERVICE.onrender.com` with your real Render URL. Replace `YOUR_DEVICE_SECRET` with the same value as `G2_DEVICE_SECRET`.
+## Watch / Action Button: Pi burst (recommended)
+
+On iPhone, Shortcuts → **+**. Name it **G2 Vision AI**.
+
+### 1. Get Contents of URL — start capture
+
+URL: `https://g2-vision-ai.onrender.com/api/capture`
+
+- Method: **POST**
+- Request Body: **Form**
+
+| Key | Type | Value |
+| --- | --- | --- |
+| `token` | Text | `G2_DEVICE_SECRET` (hex only) |
+| `mode` | Text | `general` |
+| `device_id` | Text | `watch` |
+
+### 2. Get Dictionary Value
+
+From the **Get Contents of URL** result, get `jobId`.
+
+If Shortcuts stores the response as text, add **Get Dictionary from Input** first.
+
+### 3. Repeat 25 times
+
+Inside the loop:
+
+1. **Wait** 1.5 seconds.
+2. **Get Contents of URL**  
+   `https://g2-vision-ai.onrender.com/api/result/JOB_ID?token=YOUR_SECRET`  
+   (use the `jobId` variable in the path)
+3. Method: **GET**
+4. **Get Dictionary Value** `status`
+5. **If** status is `complete` → **Get Dictionary Value** `answer` → **Show Result** (Watch) → **Stop this Shortcut**
+6. **If** status is `error` → **Get Dictionary Value** `error` → **Show Result** → **Stop this Shortcut**
+
+25 × 1.5s ≈ 37s. The Pi burst plus OpenAI usually finishes sooner. If the Pi is offline, Render returns `Camera did not respond` after about 25s.
+
+Add the Shortcut to **Apple Watch** (Watch app → Shortcuts) and optionally bind **Action Button** to it.
+
+Pi install: [raspberry-pi.md](raspberry-pi.md).
+
+## Optional: iPhone camera upload (old path)
 
 ## Create the Shortcut
 

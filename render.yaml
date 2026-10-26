@@ -29,6 +29,10 @@ services:
         sync: false
       - key: G2_DATA_DIR
         value: /var/data2
+      - key: MAX_BURST_UPLOAD_MB
+        value: "40"
+      - key: PI_DEFAULT_FRAMES
+        value: "5"
     disk:
       name: g2-data
       mountPath: /var/data2
