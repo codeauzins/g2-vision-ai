@@ -353,7 +353,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       throw httpError(400, 'missing_frames', `Expected ${expected} JPEG frames, got ${parsed.frames.length}.`);
     }
 
-    const optimized = [];
+    const optimized: Array<{ buffer: Buffer; mimeType: 'image/jpeg'; width: number; height: number }> = [];
     for (const frame of parsed.frames.slice(0, expected)) {
       if (frame.buffer.length > config.maxUploadBytes) {
         throw httpError(413, 'too_large', 'A burst frame is too large');
